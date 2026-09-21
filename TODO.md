@@ -19,7 +19,7 @@
 - `ChouChouLeScheduleAction`（需要 `RUN` / `WAIT_FOR_TIME` / `SKIP_COMPLETED`）
 - `ChouChouLeSchedulePolicy`（需要 `actionFor(completedToday: Boolean, timeReached: Boolean)`）
 
-提交 `579aae63`（*✅test: 添加抽抽乐调度策略单元测试*）**只提交了测试，没提交实现**，导致 `codex/dev` 从此处于「测试编译不过」的状态。三处测试用例（已到时间→`RUN`、未到时间→`WAIT_FOR_TIME`、今日已完成→`SKIP_COMPLETED`）已经把契约写得很清楚了。
+提交 `579aae63`（*✅test: 添加抽抽乐调度策略单元测试*）**只提交了测试，没提交实现**，导致 `main` 从此处于「测试编译不过」的状态。三处测试用例（已到时间→`RUN`、未到时间→`WAIT_FOR_TIME`、今日已完成→`SKIP_COMPLETED`）已经把契约写得很清楚了。
 
 **修复方案（二选一）**：
 
@@ -151,7 +151,8 @@ StopExecutionException: Your project path contains non-ASCII characters.
 - [x] 建立文档体系：`AGENTS.md`、`DESIGN.md`、`TODO.md`、`docs/{project-overview,architecture,user-guide,development,component-api}.md`（2026-09-21）
 - [x] `CODEBUDDY.md` 仓库导览（2026-09-21）
 - [ ] 把 P0-1 的修复结论回填到 `docs/superpowers/plans/2026-09-05-verification-and-log-errors.md` 的「分支更正」一节
-- [ ] 建立 CI 测试环节：目前 `.github/workflows/android.yml` / `debug.yml` **都只构建、不跑测试**，P0-1 这类问题才会长期潜伏在 `codex/dev` 上
+- [ ] 建立 CI 测试环节：`android.yml` **只构建、不跑测试**，P0-1 这类问题才会长期潜伏在 `main` 上
+- [ ] 在 GitHub 上为 `main` 开 branch protection（禁止直推、要求 CI 绿 + review），配合已切换的 GitHub Flow
 - [ ] 评估三套 UI 体系（Compose 青 / XML 蓝 / Web 橙）的配色统一 —— 属于产品决策，需单独立项，**不要顺手改**
 
 ---

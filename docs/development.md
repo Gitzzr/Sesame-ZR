@@ -152,7 +152,7 @@ uv run webui.py           # 本地跑 Web 设置页，改版式时热调试
 | **源码契约测试** | 同目录，如 `Libxposed102MigrationTest`、`EnergyRainCoroutineTest` | **读主源码文本做断言** | 十余个 |
 | Web JS 合同测试 | `app/src/test/js/settings-search-contract.test.js` | Node `node:test` | 1 个文件、多个用例 |
 
-**当前基线**：`2026-09-05` 计划记录为 **109 项测试、0 失败、0 错误**。但注意 —— 该基线是在「临时移走 `ChouChouLeSchedulePolicyTest.kt`」之后取得的；**当前 `codex/dev` 上测试编译是坏的**（见 `../AGENTS.md` 的「已知阻塞」）。
+**当前基线**：`2026-09-05` 计划记录为 **109 项测试、0 失败、0 错误**。但注意 —— 该基线是在「临时移走 `ChouChouLeSchedulePolicyTest.kt`」之后取得的；**当前 `main` 上测试编译是坏的**（见 `../AGENTS.md` 的「已知阻塞」）。
 
 ### 3.2 ⚠️ 源码契约测试的两个陷阱
 
@@ -251,15 +251,57 @@ fun `能量雨安全验证只结束当前流程且后续可重试`() { ... }
 
 ---
 
-## 5. 分支与提交
+## 5. 分支模型与提交（GitHub Flow）
+
+本项目采用 **GitHub Flow**：只有一条长期分支 `main`，它**必须始终处于可发布状态**；所有改动都经短生命周期的特性分支 + Pull Request 合入。
+
+```mermaid
+flowchart LR
+    M["main<br/>(永远可发布)"] -->|"1. 切出"| F["feature/xxx · fix/xxx<br/>docs/xxx · chore/xxx"]
+    F -->|"2. 推送 + 开 PR"| PR["Pull Request"]
+    PR -->|"3. CI 绿 + Review"| OK{"可以合入?"}
+    OK -- 是 -->|"4. Squash merge<br/>+ 删分支"| M
+    OK -- 否 --> F
+```
+
+### 5.1 硬性约定
 
 | 项 | 约定 |
 | --- | --- |
-| 默认/目标分支 | **`codex/dev`** |
-| 调试构建分支 | `yang`（`debug.yml` 只监听它） |
-| 提交信息 | **中文**，可带 emoji 前缀（仓库现状：`✅test:`、`fix(森林):`、`feat(神奇海洋):`、`docs:`） |
-| 历史改写 | **不强推**。需要撤回时新增回退提交（`2026-09-05` 计划有先例） |
+| 长期分支 | **只有 `main`**。不存在也不需要 `develop` / `release` / `hotfix`，不要新建 |
+| 直接推 `main` | **禁止**。`main` 只接受 PR 合入（建议在 GitHub 上开 branch protection 强制） |
+| 特性分支命名 | `feature/<简述>`、`fix/<简述>`、`docs/<简述>`、`chore/<简述>`、`ci/<简述>`；全小写、连字符分隔，如 `fix/verification-pause-stuck` |
+| 分支生命周期 | 短。合入后立即删除（GitHub 仓库设置里开 "Automatically delete head branches"） |
+| 合入方式 | **Squash and merge**。一个 PR 压成一个提交，`main` 保持线性、可回溯 |
+| 合入前提 | CI 绿 + 至少一次 review。**不要**用 `--admin`、`--force` 或本地直推绕过 |
+| 提交信息 | **中文**，可带 emoji / 类型前缀（仓库现状：`✅test:`、`fix(森林):`、`feat(神奇海洋):`、`docs:`、`ci:`） |
+| 历史改写 | **不强推 `main`**。需要撤回时新增回退提交（`2026-09-05` 计划有先例） |
 | 提交范围 | 不要把 `local.properties`、`*.jks`、`serve-debug/webhook.db` 等加进来 |
+| 发布 | 合入 `main` 后打 tag / 发 Release，`android.yml` 的 release 事件会签名并分发 APK（见 §8） |
+
+### 5.2 一次改动的完整流程
+
+```bash
+git switch main && git pull                       # 1. 同步主干
+git switch -c fix/verification-pause-stuck        # 2. 切特性分支（命名见 5.1）
+# ...改代码，按职责分组提交...
+git push -u origin fix/verification-pause-stuck   # 3. 推分支（首次带 -u）
+# 4. 在 GitHub 上开 PR，等 CI 绿 + review
+# 5. Squash and merge，删掉特性分支，本地 git switch main && git pull
+```
+
+> **分支沿革**：主干曾叫 `codex/dev`，2026-09-22 先改为 `develop`、随即定为 `main` 并切换为 GitHub Flow。
+> 同期删除了监听 `yang` 分支的 `.github/workflows/debug.yml`（`yang` 在远端从不存在，该流水线是死配置）。
+> `docs/superpowers/plans/2026-09-05-*.md` 里提到的 `codex/dev` 是历史记录，**不要改**。
+
+### 5.3 本机推送要先过代理
+
+本机直连 GitHub 不通，仓库已配置**只对 github.com 生效**的代理（见 [`../AGENTS.md`](../AGENTS.md) 的环境章节）。
+若哪天 `git push` 报 `Could not connect to server`，先确认 Clash 在跑、且代理配置还在：
+
+```bash
+git config --global --get 'http.https://github.com.proxy'   # 应输出 http://127.0.0.1:7897
+```
 
 ---
 
@@ -267,7 +309,7 @@ fun `能量雨安全验证只结束当前流程且后续可重试`() { ... }
 
 按改动类型选对应的清单；**发布前跑「全量」**。
 
-### 6.1 全量（发布前 / 合并到 `codex/dev` 前）
+### 6.1 全量（发布前 / 合并到 `main` 前）
 
 - [ ] `./gradlew :app:testDebugUnitTest` 编译通过且全绿
 - [ ] `node --test app/src/test/js/`
@@ -362,7 +404,8 @@ fun `能量雨安全验证只结束当前流程且后续可重试`() { ... }
 
 ```mermaid
 flowchart LR
-    A["改动合入 codex/dev"] --> B["CI: android.yml<br/>assembleRelease"]
+    P["PR 到 main"] -->|"CI 绿 + review"| A["Squash merge 进 main"]
+    A --> B["CI: android.yml<br/>assembleRelease"]
     B --> C["签名<br/>(4 个 secrets)"]
     C --> D["上传各 ABI artifact"]
     D --> E{"发 Release?"}
@@ -371,9 +414,9 @@ flowchart LR
 
 | 触发条件 | 结果 |
 | --- | --- |
-| push / PR 到 `codex/dev` | 构建 + 签名 + 上传 artifact |
-| 发布 Release | 额外上传 `arm64-v8a` 并同步到目标仓库 |
-| push / PR 到 `yang` | `assembleDebug`，不签名，只上传 artifact |
+| PR 到 `main` | 构建 + 签名 + 上传各 ABI artifact（合入前的校验） |
+| push 到 `main`（PR 被合入后） | 同上，产物可作发布候选 |
+| 发布 Release | 额外上传 `arm64-v8a` 到 Release，并同步到目标仓库 |
 
 签名需要的 secrets：`ANDROID_SIGNING_KEY`、`ANDROID_KEY_ALIAS`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_PASSWORD`。
 

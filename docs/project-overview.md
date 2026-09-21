@@ -135,7 +135,7 @@ Sesame-VN/
 │   └── README.MD              # 使用方法
 │
 ├── gradle/libs.versions.toml  # 版本目录（所有依赖版本集中在此）
-└── .github/workflows/         # android.yml（发布构建）/ debug.yml（调试构建）
+└── .github/workflows/         # android.yml（唯一流水线：PR 校验 + main 发布构建）
 ```
 
 ---
@@ -159,9 +159,9 @@ Sesame-VN/
 
 | 触发 | workflow | 行为 |
 | --- | --- | --- |
-| push / PR 到 `codex/dev` | `android.yml` | `assembleRelease` → 签名 → 上传各 ABI artifact |
+| PR 到 `main` | `android.yml` | `assembleRelease` → 签名 → 上传各 ABI artifact（合入前校验） |
+| push 到 `main` | `android.yml` | 同上，产物可作发布候选 |
 | 发布 Release | `android.yml` | 额外把 `arm64-v8a` 上传到 Release，并同步到目标仓库 |
-| push / PR 到 `yang` | `debug.yml` | `assembleDebug` → 只上传 debug artifact（不签名） |
 
 签名依赖 4 个 secrets：`ANDROID_SIGNING_KEY`、`ANDROID_KEY_ALIAS`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_PASSWORD`。
 

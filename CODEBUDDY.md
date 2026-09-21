@@ -26,7 +26,7 @@ This file provides guidance to CodeBuddy Code when working with code in this rep
 
 ## 三条最容易踩的
 
-1. **目标分支是 `codex/dev`**，不是 main/master；CI 只认它（`debug.yml` 另监听 `yang`）。
+1. **主干是 `main`，且只有这一条长期分支**（GitHub Flow）：特性分支 → PR → Squash merge。CI 只认 `main`，禁止直推。
 2. **单元测试目前编译不过** —— `ChouChouLeSchedulePolicyTest.kt` 引用了不存在的 `ChouChouLeScheduleAction` / `ChouChouLeSchedulePolicy`。见 `TODO.md` P0-1。
 3. **很多单测是「读源码文本做断言」**（`File("src/main/...")`）—— 必须经 Gradle 跑（工作目录是 `app/`），且**重命名标识符会打挂它们**。
 

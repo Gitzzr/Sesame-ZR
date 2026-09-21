@@ -12,7 +12,8 @@
 
 ## 开工前必读的 8 条硬规则
 
-1. **目标分支是 `codex/dev`**，不是 main/master。CI（`.github/workflows/android.yml`）只认这个分支。
+1. **主干分支是 `main`，而且只有这一条长期分支**（GitHub Flow）。CI（`.github/workflows/android.yml`）只认它。
+   改动一律走「特性分支 → PR → **Squash merge** 进 `main`」，**禁止直接往 `main` 推**。分支模型与命名见 [`docs/development.md`](docs/development.md) §5。
 2. **不自动完成、不绕过支付宝的安全验证。** 程序能控制的只有「停止请求、调度、接口兼容」，不要把重启应用当作验证通过。
 3. **识别到安全验证响应时，只结束当前这一次调用流程**，禁止写入跨调用、跨当天的持久化暂停标记。参见 [`docs/superpowers/specs/2026-08-01-energy-rain-verification-retry-design.md`](docs/superpowers/specs/2026-08-01-energy-rain-verification-retry-design.md)。
 4. **所有 hook 必须经 `ModernXposedRuntime.hook(...)` / `replaceWithConstant(...)`**，不要在别处直接调 libxposed 原始 API。参数与返回值由 `HookInvocation` 统一封装。
@@ -30,6 +31,7 @@
 | Android SDK | ✅ `C:\env\android-sdk` | platform **37.0** + build-tools **37.0.0** + platform-tools；`ANDROID_HOME` / `ANDROID_SDK_ROOT` 已设；`local.properties` 已写（该文件在 `.gitignore` 里，不要提交） |
 | Gradle | ✅ 9.5.0（wrapper） | 发行包已预置进 wrapper 缓存，**不要用系统 gradle** |
 | 已跑通 | `:app:compileDebugKotlin` | 2026-09-21 实测 `BUILD SUCCESSFUL in 4m 9s` |
+| GitHub 推送 | ⚠️ **需经 Clash 代理** | 本机直连 github.com 不通（浏览器能上是走了系统代理，git 默认不读）。仓库已配 `http.https://github.com.proxy = http://127.0.0.1:7897`（**只对 github.com 生效**，不影响 cnb.cool/gitee）。报 `Could not connect to server` 就先检查 Clash 是否在跑 |
 
 > **wrapper 缓存是手动预置的。** `services.gradle.org` 的发行包会 302 跳转到 GitHub，本机访问 GitHub 不通。
 > 缓存位置 `~/.gradle/wrapper/dists/gradle-9.5.0-bin/bvnork1r7n8i6kp5cnkibsc9q/`，zip 由腾讯镜像
