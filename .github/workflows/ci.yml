@@ -29,21 +29,21 @@ jobs:
           echo "Current time: $(date)"
 
       - name: 👨🏻‍💻 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # versionCode 取自 `git rev-list --count HEAD`，必须是完整克隆（浅克隆会让版本号错）
           fetch-depth: 0
           ref: ${{ github.head_ref || github.ref_name }}
 
       - name: ☕ Set up JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           java-version: "17"
           distribution: "zulu"
           cache: gradle
 
       - name: 🤝 Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           cache-read-only: false
           gradle-version: wrapper
@@ -63,7 +63,7 @@ jobs:
 
       - name: 📊 Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-report
           path: |
@@ -72,7 +72,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: 📦 Upload debug APK（universal）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: apk-debug-universal
           path: app/build/outputs/apk/debug/*universal*.apk
