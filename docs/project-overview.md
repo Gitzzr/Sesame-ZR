@@ -159,9 +159,11 @@ Sesame-ZR/
 
 | 触发 | workflow | 行为 |
 | --- | --- | --- |
-| PR 到 `main` | `android.yml` | `assembleRelease` → 签名 → 上传各 ABI artifact（合入前校验） |
-| push 到 `main` | `android.yml` | 同上，产物可作发布候选 |
-| 发布 Release | `android.yml` | 额外把 `arm64-v8a` 上传到 Release，并同步到目标仓库 |
+| PR 到 `main` | `ci.yml` | `assembleDebug` + 单测（Kotlin/JVM + Web JS）—— **合入门禁，不签名** |
+| push 到 `main` | `ci.yml` | 同上，验证主干始终可发布 |
+| 发布 Release | `android.yml` | `assembleRelease` → 签名 → 上传各 ABI artifact → 同步到 Release |
+
+流水线按职责拆分：校验（`ci.yml`）不含签名，所以能稳定变绿；发版（`android.yml`）依赖 4 个 secrets，只在发 Release 时触发。
 
 签名依赖 4 个 secrets：`ANDROID_SIGNING_KEY`、`ANDROID_KEY_ALIAS`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_PASSWORD`。
 

@@ -236,7 +236,7 @@ static void show(Context context, CharSequence title, ChoiceModelField choiceMod
 ## C. Web 端纯逻辑 JS：`SettingsSearchContract`
 
 **文件**：`app/src/main/assets/web/js/settings-search-contract.js`
-**测试**：`app/src/test/js/settings-search-contract.test.js`（`node --test app/src/test/js/`）
+**测试**：`app/src/test/js/settings-search-contract.test.js`（`node --test app/src/test/js/*.test.js`）
 
 UMD 模块，同时支持 `module.exports`（Node）与 `window.SettingsSearchContract`（浏览器）。
 

@@ -12,8 +12,8 @@
 
 ## 开工前必读的 8 条硬规则
 
-1. **主干分支是 `main`，而且只有这一条长期分支**（GitHub Flow）。CI（`.github/workflows/android.yml`）只认它。
-   改动一律走「特性分支 → PR → **Squash merge** 进 `main`」，**禁止直接往 `main` 推**。分支模型与命名见 [`docs/development.md`](docs/development.md) §5。
+1. **主干分支是 `main`，而且只有这一条长期分支**（GitHub Flow）。改动一律走「特性分支 → PR → **Squash merge** 进 `main`」，**禁止直接往 `main` 推**。
+   校验门禁是 `.github/workflows/ci.yml`（PR 与主干推送都跑：build + 单测，**不含签名**）；`.github/workflows/android.yml` 只管发版（build + 签名 + 分发，需要 4 个 secrets）。分支模型见 [`docs/development.md`](docs/development.md) §5，流水线见 §8。
 2. **不自动完成、不绕过支付宝的安全验证。** 程序能控制的只有「停止请求、调度、接口兼容」，不要把重启应用当作验证通过。
 3. **识别到安全验证响应时，只结束当前这一次调用流程**，禁止写入跨调用、跨当天的持久化暂停标记。参见 [`docs/superpowers/specs/2026-08-01-energy-rain-verification-retry-design.md`](docs/superpowers/specs/2026-08-01-energy-rain-verification-retry-design.md)。
 4. **所有 hook 必须经 `ModernXposedRuntime.hook(...)` / `replaceWithConstant(...)`**，不要在别处直接调 libxposed 原始 API。参数与返回值由 `HookInvocation` 统一封装。
@@ -45,18 +45,23 @@
 > `JAVA_TOOL_OPTIONS=-Djdk.net.unixdomain.tmpdir=C:/Windows/Temp`。**本次在 JDK 17 + ASCII 路径下未复现**，
 > 保留备查。真要加时**只改环境变量，不要动 `gradle.properties`**。
 
-## ⚠️ 已知阻塞：测试编译目前是坏的
+## ⚠️ 半成品功能：抽抽乐调度策略（阻塞已解，功能仍未实现）
 
-`app/src/test/java/fansirsqi/xposed/sesame/task/antFarm/ChouChouLeSchedulePolicyTest.kt` 引用了 **主源码中并不存在**的 `ChouChouLeScheduleAction` 与 `ChouChouLeSchedulePolicy`（提交 `579aae63` 只加了测试，没加实现）。
+`app/src/test/java/fansirsqi/xposed/sesame/task/antFarm/ChouChouLeSchedulePolicyTest.kt` 描述了一个**主源码中并不存在**的
+`ChouChouLeScheduleAction` / `ChouChouLeSchedulePolicy`（提交 `579aae63` 只加了测试，没加实现）。
+它曾让 `./gradlew :app:testDebugUnitTest` **编译失败**，整个测试任务跑不起来 —— 不是用例失败，是编译不过。
 
-后果：`./gradlew :app:testDebugUnitTest` 会**编译失败**，整个测试任务跑不起来。这不是测试用例失败，是编译不过。
+**2026-09-22 已解阻塞**：把断言注释保留成契约 + 加 `@Ignore`。
 
-**接手时的第一件事应该是二选一**：
+> ⚠️ **单纯加 `@Ignore` 解决不了这个问题** —— `@Ignore` 只跳过「执行」，不跳过「编译」，
+> 引用了不存在的类照样编译失败。必须同时把引用注释掉。
 
-- 补上 `ChouChouLeScheduleAction` / `ChouChouLeSchedulePolicy` 的最小实现（`RUN` / `WAIT_FOR_TIME` / `SKIP_COMPLETED` 三态 + `actionFor(completedToday, timeReached)`），或
-- 先移除/`@Ignore` 该测试文件。
+> **这不是「从任务里重构抽出来的策略」，而是一个没做完的新功能。**
+> `ChouChouLe.kt`（640 行）里没有任何时间/完成度调度逻辑，也没有相关的设置项。所以实现它得先定语义：
+> `timeReached` 以什么为准（固定时间点？设置项？）、`completedToday` 从哪里读。
 
-详见 [`TODO.md`](TODO.md)。
+**要做这个功能时**：定语义 → 实现三态枚举与 `actionFor(completedToday, timeReached)` → **接线到调度** → 解除 `@Ignore` 恢复断言。
+只实现不接线，只会留下一段没人调用的死代码。详见 [`TODO.md`](TODO.md) P0-1。
 
 ## 常用命令速查
 
@@ -72,7 +77,7 @@
 ./gradlew.bat :app:testDebugUnitTest --tests "fansirsqi.xposed.sesame.task.antForest.EnergyRainCoroutineTest" --no-daemon
 
 # Web 端 JS 合同测试（Node 内置 node:test，无 npm 依赖）
-node --test app/src/test/js/
+node --test app/src/test/js/*.test.js
 ```
 
 Windows 下把 `./gradlew` 换成 `./gradlew.bat`。完整说明见 [`docs/development.md`](docs/development.md)。

@@ -10,25 +10,38 @@
 
 ## 🔴 P0 · 阻塞项（不解决就没法正常开发）
 
-### P0-1 单元测试当前编译失败
+### P0-1 单元测试编译失败 —— 🟡 阻塞已解，功能仍未实现（2026-09-22）
 
-**现象**：`./gradlew :app:testDebugUnitTest` 直接编译失败，整个测试任务跑不起来。
+**原现象**：`./gradlew :app:testDebugUnitTest` 直接编译失败，整个测试任务跑不起来。
 
 **根因**：`app/src/test/java/fansirsqi/xposed/sesame/task/antFarm/ChouChouLeSchedulePolicyTest.kt` 引用了主源码中不存在的两个类型：
 
 - `ChouChouLeScheduleAction`（需要 `RUN` / `WAIT_FOR_TIME` / `SKIP_COMPLETED`）
 - `ChouChouLeSchedulePolicy`（需要 `actionFor(completedToday: Boolean, timeReached: Boolean)`）
 
-提交 `579aae63`（*✅test: 添加抽抽乐调度策略单元测试*）**只提交了测试，没提交实现**，导致 `main` 从此处于「测试编译不过」的状态。三处测试用例（已到时间→`RUN`、未到时间→`WAIT_FOR_TIME`、今日已完成→`SKIP_COMPLETED`）已经把契约写得很清楚了。
+提交 `579aae63`（*✅test: 添加抽抽乐调度策略单元测试*）**只提交了测试，没提交实现**。
 
-**修复方案（二选一）**：
+**已做（2026-09-22）**：给该测试加 `@Ignore`，并把三处断言注释保留成契约。
+测试源码因此可以编译，`:app:testDebugUnitTest` 恢复可跑（该测试显示为 skipped）。
 
-1. **补实现**（推荐）：在 `task/antFarm/` 下新增 `ChouChouLeSchedulePolicy.kt`，按三态语义实现 `actionFor`，并让 `ChouChouLe.kt` 的调度分支实际调用它 —— 否则策略类只是「为测试而测试」。
-2. **临时移除**：删除或 `@Ignore` 该测试文件，先恢复测试可跑，再另开任务补实现。
+> ⚠️ 踩坑记录：**单加 `@Ignore` 不解决问题** —— `@Ignore` 只跳过「执行」不跳过「编译」，
+> 引用了不存在的类照样编译失败。必须同时把引用注释掉。
 
-**验收**：`./gradlew :app:testDebugUnitTest` 能编译并执行；此前的 109 项测试基线重新全绿。
+**仍未做（这才是真正的工作量）**：`ChouChouLe.kt`（640 行）里**没有任何时间/完成度调度逻辑**，
+也没有对应设置项 —— 所以 `ChouChouLeSchedulePolicy` 不是「从任务里重构抽出来的」，而是**一个没做完的新功能**。
+要做它得先定语义：`timeReached` 以什么为准（固定时间点？设置项？）、`completedToday` 从哪里读。
 
-> 背景：`2026-09-05` 计划的「分支更正」一节已经记录过这个问题（*「开发分支原有 `ChouChouLeSchedulePolicyTest.kt` 引用不存在的类，完整测试编译失败」*），当时用「临时隔离该文件」的方式绕过并跑通 164 项测试，但**问题本身没有被修**。所以现在仍然是坏的。
+**待办**：
+
+- [ ] 定调度语义（`timeReached` 判定依据、`completedToday` 数据来源）
+- [ ] 实现 `ChouChouLeScheduleAction` + `ChouChouLeSchedulePolicy`
+- [ ] **接线到 `ChouChouLe.kt` 的调度分支** —— 只实现不接线会留下死代码
+- [ ] 补 `(completedToday = true, timeReached = false)` 这条用例（现有用例没覆盖）
+- [ ] 解除 `@Ignore` 并恢复断言
+
+**验收**：`./gradlew :app:testDebugUnitTest` 编译并执行，该测试由 skipped 变为 pass。
+
+> 背景：`2026-09-05` 计划的「分支更正」一节已经记录过这个问题（*「开发分支原有 `ChouChouLeSchedulePolicyTest.kt` 引用不存在的类，完整测试编译失败」*），当时用「临时隔离该文件」的方式绕过并跑通 164 项测试，但**问题本身没有被修**。2026-09-22 的 `@Ignore` 同样是权宜之计。
 
 ### P0-2 开发环境缺 SDK 与 JDK 17 —— ✅ 已完成（2026-09-21）
 
@@ -151,7 +164,7 @@ StopExecutionException: Your project path contains non-ASCII characters.
 - [x] 建立文档体系：`AGENTS.md`、`DESIGN.md`、`TODO.md`、`docs/{project-overview,architecture,user-guide,development,component-api}.md`（2026-09-21）
 - [x] `CODEBUDDY.md` 仓库导览（2026-09-21）
 - [ ] 把 P0-1 的修复结论回填到 `docs/superpowers/plans/2026-09-05-verification-and-log-errors.md` 的「分支更正」一节
-- [ ] 建立 CI 测试环节：`android.yml` **只构建、不跑测试**，P0-1 这类问题才会长期潜伏在 `main` 上
+- [x] 建立 CI 测试环节：已拆分流水线 —— `ci.yml` 跑 build + 单测（Kotlin/JVM + Web JS），`android.yml` 只管发版（2026-09-22）
 - [ ] 在 GitHub 上为 `main` 开 branch protection（禁止直推、要求 CI 绿 + review），配合已切换的 GitHub Flow
 - [ ] 评估三套 UI 体系（Compose 青 / XML 蓝 / Web 橙）的配色统一 —— 属于产品决策，需单独立项，**不要顺手改**
 
@@ -183,7 +196,7 @@ StopExecutionException: Your project path contains non-ASCII characters.
 
 | 优先级 | 任务 | 阻塞于 | 预计影响面 |
 | --- | --- | --- | --- |
-| 🔴 P0-1 | 修 `ChouChouLeSchedulePolicy` 测试编译失败 | 无（可立即做） | 1 新增文件 + `ChouChouLe.kt` 调度分支 |
+| ~~🟡 P0-1~~ ⚠️ | 抽抽乐调度策略：**编译阻塞已解**（`@Ignore`），功能本身待实现并接线 | 需先定调度语义 | 1 新增文件 + `ChouChouLe.kt` 调度分支 |
 | ~~🔴 P0-2~~ ✅ | ~~装 JDK 17 + Android SDK 37~~ 已完成 2026-09-21 | — | 环境，无代码变更 |
 | 🟠 P1-1 | 安全验证与调度修复的实机回归 | 真机 | 无代码变更，纯验证 |
 | 🟠 P1-2 | 自营项目捐蛋 | **需要用户提供抓包样本** | `AntFarm.kt` + 协议测试 |
@@ -191,4 +204,5 @@ StopExecutionException: Your project path contains non-ASCII characters.
 | 🟡 P2-4 | HTTP 接口鉴权统一 | 需确认使用场景 | `hook/server/` |
 | 🟡 P2-5 | 补 `SettingsComponents.kt` 的 `package` | 无 | 1 行 |
 | 🟡 P2-6 | `white-space: warp` 笔误 | 无 | `index.css` 一行 |
-| 🟢 P3 | CI 增加测试环节 | P0-1 | workflow 改动 |
+| ~~🟢 P3~~ ✅ | ~~CI 增加测试环节~~ 已完成 2026-09-22（拆出 `ci.yml`：build + 单测） | — | workflow 改动 |
+| 🟢 P3 | 发版流水线配 4 个签名 secrets（fork 不继承上游，当前 `android.yml` 必挂） | 需用户提供 keystore | secrets，无代码变更 |

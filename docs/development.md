@@ -115,7 +115,9 @@ app/build/outputs/apk/{debug,release}/Sesame-ZR-<abi>-<versionName>.apk
 ./gradlew.bat :app:testDebugUnitTest --tests "..." --no-daemon
 
 # Web 端 JS 合同测试（Node 内置 node:test，无需 npm install）
-node --test app/src/test/js/
+# ⚠️ 必须写 glob：传目录（`node --test app/src/test/js/`）在 Node 22 下会失败 ——
+#    Node 会把目录本身当成一个测试脚本去执行。别用目录写法。
+node --test app/src/test/js/*.test.js
 node app/src/test/js/settings-search-contract.test.js    # 单文件
 ```
 
@@ -312,7 +314,7 @@ git config --global --get 'http.https://github.com.proxy'   # 应输出 http://1
 ### 6.1 全量（发布前 / 合并到 `main` 前）
 
 - [ ] `./gradlew :app:testDebugUnitTest` 编译通过且全绿
-- [ ] `node --test app/src/test/js/`
+- [ ] `node --test app/src/test/js/*.test.js`
 - [ ] `./gradlew :app:assembleDebug` 成功产出 5 个 ABI 的 APK
 - [ ] `./gradlew :app:assembleRelease` 成功（签名配置在 CI 里，本地只验证能构建）
 - [ ] `CHANGELOG.md` 已更新
@@ -341,7 +343,7 @@ git config --global --get 'http.https://github.com.proxy'   # 应输出 http://1
 - [ ] 只改 `*.html` / `css/index.css` / `js/*.js`，**没碰** `semi.min.css`、`vant.css`、`vendor js`
 - [ ] 字号覆盖带了 `!important`（全局 reset 把所有标签锁成 `16px`）
 - [ ] 新的根节点带了 `v-cloak`
-- [ ] 若改了 `semi_index.html` 或 `settings-search-contract.js` → `node --test app/src/test/js/`
+- [ ] 若改了 `semi_index.html` 或 `settings-search-contract.js` → `node --test app/src/test/js/*.test.js`
 - [ ] 三套页面（`semi` / `varlet` / `index`）是否需要同步？它们**不会自动同步**
 - [ ] 调用的 `window.HOOK.*` 接口仍然存在，且返回值按 JSON 字符串处理
 - [ ] 视觉一致性对照 [`../DESIGN.md`](../DESIGN.md) C 节
@@ -402,25 +404,44 @@ git config --global --get 'http.https://github.com.proxy'   # 应输出 http://1
 
 ## 8. 发布流程
 
+流水线按职责拆成两条 —— 这是 GitHub Flow 能运转的前提：**PR 上的校验必须能稳定变绿**。
+签名依赖 4 个 secrets，缺一个就必红；把签名混进 PR 校验，门禁第一天就废了（没人会认真看待一条恒定失败的红叉）。
+
+| 流水线 | 触发 | 职责 | 需要 secrets |
+| --- | --- | --- | --- |
+| `.github/workflows/ci.yml` | PR 到 `main`、push 到 `main`、手动 | `assembleDebug` + 单测（Kotlin/JVM + Web JS） | 否 |
+| `.github/workflows/android.yml` | 发 Release、手动 | `assembleRelease` + 签名 + 上传各 ABI artifact + 分发 | **是** |
+
 ```mermaid
 flowchart LR
-    P["PR 到 main"] -->|"CI 绿 + review"| A["Squash merge 进 main"]
-    A --> B["CI: android.yml<br/>assembleRelease"]
-    B --> C["签名<br/>(4 个 secrets)"]
-    C --> D["上传各 ABI artifact"]
-    D --> E{"发 Release?"}
-    E -- 是 --> F["上传 arm64-v8a 到 Release<br/>+ 同步到目标仓库"]
+    F["特性分支"] -->|"开 PR"| C1["ci.yml<br/>build + test"]
+    C1 -->|"绿 + review"| M["Squash merge 进 main"]
+    M --> C2["ci.yml 再跑一次"]
+    C2 -->|"绿"| R{"发 Release?"}
+    R -- 是 --> A["android.yml<br/>assembleRelease"]
+    A --> S["签名<br/>(4 个 secrets)"]
+    S --> U["上传各 ABI artifact<br/>+ 同步到 Release"]
 ```
-
-| 触发条件 | 结果 |
-| --- | --- |
-| PR 到 `main` | 构建 + 签名 + 上传各 ABI artifact（合入前的校验） |
-| push 到 `main`（PR 被合入后） | 同上，产物可作发布候选 |
-| 发布 Release | 额外上传 `arm64-v8a` 到 Release，并同步到目标仓库 |
 
 签名需要的 secrets：`ANDROID_SIGNING_KEY`、`ANDROID_KEY_ALIAS`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_PASSWORD`。
 
-> ⚠️ **CI 目前不跑测试**，只构建。也就是说 —— 测试编译坏掉（比如现在的 `ChouChouLeSchedulePolicyTest`）CI 一声不吭。修复见 `../TODO.md` P3。
+> ⚠️ 本仓库是 **fork，不会继承上游的 secrets**。当前一个都没配，所以 `android.yml` 一旦触发必然倒在
+> 「🔐 Sign APKs」这一步（报 `Cannot find signingKey/ANDROID_SIGNING_KEY`）。这属于**预期**行为 ——
+> 它只在真正发版时才需要；要发版请先配好这 4 个 secrets。
+>
+> 另外注意：`app/build.gradle.kts` 里 `release` 用的也是 `signingConfigs.getByName("debug")`，
+> 也就是本地 `assembleRelease` 产出的是 **debug 签名**包。真正的发布签名完全由 `android.yml` 的
+> `ilharp/sign-android-release` 重新签。**不要以为本地跑通了 release 就等于发版链路通了。**
+
+用 `gh` 观察与手动触发：
+
+```bash
+gh run list --repo Gitzzr/Sesame-ZR --limit 5
+gh run view <run-id> --repo Gitzzr/Sesame-ZR --log-failed
+gh workflow run ci.yml --repo Gitzzr/Sesame-ZR --ref main
+```
+
+> `gh` 是 Go 程序，只读 `HTTPS_PROXY`（不读 Windows 系统代理）。本机已在用户级设好 `HTTPS_PROXY=http://127.0.0.1:7897`。
 
 ---
 
