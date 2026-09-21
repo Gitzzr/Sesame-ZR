@@ -53,7 +53,7 @@
 StopExecutionException: Your project path contains non-ASCII characters.
 ```
 
-因此仓库从 `...\WorkBuddy\蚂蚁森林辅助\Sesame-VN` 迁到 **`C:\Users\Administrator\WorkBuddy\senmayi\Sesame-VN`**。
+因此仓库从 `...\WorkBuddy\蚂蚁森林辅助\Sesame-ZR` 迁到 **`C:\Users\Administrator\WorkBuddy\senmayi\Sesame-ZR`**。
 本地构建不含原生代码（`app/src/main/cpp` 不存在），也可以用 `android.overridePathCheck=true` 绕过，
 但推荐直接放 ASCII 路径。详见 `docs/development.md` §1.2。
 

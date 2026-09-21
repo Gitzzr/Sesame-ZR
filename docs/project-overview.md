@@ -1,12 +1,12 @@
 # 项目整体说明
 
-> Sesame-VN · 面向使用者的能力概览请见 [`user-guide.md`](user-guide.md) · 架构细节见 [`architecture.md`](architecture.md)
+> Sesame-ZR · 面向使用者的能力概览请见 [`user-guide.md`](user-guide.md) · 架构细节见 [`architecture.md`](architecture.md)
 
 ---
 
 ## 1. 一句话定位
 
-**Sesame-VN 是一个注入支付宝的 Xposed 模块，把「蚂蚁系」日常任务自动化。**
+**Sesame-ZR 是一个注入支付宝的 Xposed 模块，把「蚂蚁系」日常任务自动化。**
 
 它本身不是一个独立 App。安装后由 Xposed/LSPosed 框架加载进支付宝进程，借助支付宝自身的 RPC 通道完成收能量、喂小鸡、做任务等操作，同时提供一个设置界面供用户开关每一项能力。
 
@@ -76,7 +76,7 @@
 ## 4. 目录结构
 
 ```
-Sesame-VN/
+Sesame-ZR/
 ├── AGENTS.md                  # AI 入口：硬规则、环境现状、已知阻塞
 ├── DESIGN.md                  # 视觉规则（Compose / XML / Web 三套体系）
 ├── TODO.md                    # 任务、优先级、进度
@@ -144,7 +144,7 @@ Sesame-VN/
 
 ### 5.1 APK
 
-一次构建产出 **5 个 APK**（ABI 分包 + 通用包），文件名格式 `Sesame-VN-<abi>-<versionName>.apk`：
+一次构建产出 **5 个 APK**（ABI 分包 + 通用包），文件名格式 `Sesame-ZR-<abi>-<versionName>.apk`：
 
 | 产物 | 适用设备 |
 | --- | --- |

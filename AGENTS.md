@@ -4,7 +4,7 @@
 
 ## 这是什么项目
 
-**Sesame-VN** —— 一个注入支付宝的 libxposed (API 102) 模块，用 Xposed/LSPosed 框架加载后自动完成蚂蚁森林、小鸡庄园、神奇海洋、蚂蚁新村、会员任务等「蚂蚁系」日常操作。fork 自 [Sesame-TK](https://github.com/Fansirsqi/Sesame-TK)。
+**Sesame-ZR** —— 一个注入支付宝的 libxposed (API 102) 模块，用 Xposed/LSPosed 框架加载后自动完成蚂蚁森林、小鸡庄园、神奇海洋、蚂蚁新村、会员任务等「蚂蚁系」日常操作。fork 自 [Sesame-TK](https://github.com/Fansirsqi/Sesame-TK)。
 
 - 语言 / 构成：Kotlin 为主（217 个 `.kt`）+ Java 兼容层（96 个 `.java`），另有约 20 个内嵌 Web 页面（`assets/web`）和一套 Python 调试台（`serve-debug/`）
 - 包名：`fansirsqi.xposed.sesame`（同时是 namespace 与 applicationId）
@@ -26,7 +26,7 @@
 
 | 项 | 状态 | 说明 |
 | --- | --- | --- |
-| 仓库位置 | ⚠️ **必须是纯 ASCII 路径** | 现位于 `C:\Users\Administrator\WorkBuddy\senmayi\Sesame-VN`。AGP 会直接拒绝含非 ASCII 字符的项目路径（报 `Your project path contains non-ASCII characters`），所以**不要把仓库放回带中文的目录** |
+| 仓库位置 | ⚠️ **必须是纯 ASCII 路径** | 现位于 `C:\Users\Administrator\WorkBuddy\senmayi\Sesame-ZR`。AGP 会直接拒绝含非 ASCII 字符的项目路径（报 `Your project path contains non-ASCII characters`），所以**不要把仓库放回带中文的目录** |
 | JDK | ✅ 17.0.7 @ `C:\env\Java\jdk-17_windows-x64` | `JAVA_HOME` 已指向它，`%JAVA_HOME%\bin` 已置于用户 PATH 最前 |
 | Android SDK | ✅ `C:\env\android-sdk` | platform **37.0** + build-tools **37.0.0** + platform-tools；`ANDROID_HOME` / `ANDROID_SDK_ROOT` 已设；`local.properties` 已写（该文件在 `.gitignore` 里，不要提交） |
 | Gradle | ✅ 9.5.0（wrapper） | 发行包已预置进 wrapper 缓存，**不要用系统 gradle** |

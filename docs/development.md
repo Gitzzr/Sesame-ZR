@@ -27,7 +27,7 @@ org.gradle.api.tasks.StopExecutionException: Your project path contains non-ASCI
 This will most likely cause the build to fail on Windows. Please move your project to a different directory.
 ```
 
-本仓库因此从 `...\WorkBuddy\蚂蚁森林辅助\Sesame-VN` 迁到了 **`C:\Users\Administrator\WorkBuddy\senmayi\Sesame-VN`**。
+本仓库因此从 `...\WorkBuddy\蚂蚁森林辅助\Sesame-ZR` 迁到了 **`C:\Users\Administrator\WorkBuddy\senmayi\Sesame-ZR`**。
 
 本地构建不含原生代码（`app/src/main/cpp` 不存在，`externalNativeBuild` 块不生效，`isCIBuild` 为 false），
 理论上也能用 `android.overridePathCheck=true` 绕过。但那是把风险往后推，**推荐直接放在 ASCII 路径下**。
@@ -94,7 +94,7 @@ Windows 下把 `./gradlew` 换成 `./gradlew.bat`。
 产物路径与命名：
 
 ```
-app/build/outputs/apk/{debug,release}/Sesame-VN-<abi>-<versionName>.apk
+app/build/outputs/apk/{debug,release}/Sesame-ZR-<abi>-<versionName>.apk
 ```
 
 共 5 个 ABI：`arm64-v8a` / `armeabi-v7a` / `x86` / `x86_64` / `universal`。
