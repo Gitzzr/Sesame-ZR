@@ -3,9 +3,9 @@ run-name: 📦 ${{ github.actor }} @ Github Action
 
 on:
   push:
-    branches: [ "codex/dev" ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ "codex/dev" ]
+    branches: [ "main" ]
   release:
     types: [ published ]
   workflow_dispatch:
