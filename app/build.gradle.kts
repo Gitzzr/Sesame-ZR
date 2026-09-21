@@ -134,7 +134,7 @@ androidComponents {
                 ?: "universal"
             output.outputFileName.set(
                 output.versionName.map { versionName ->
-                    "Sesame-VN-$abiName-$versionName.apk"
+                    "Sesame-ZR-$abiName-$versionName.apk"
                 }
             )
         }

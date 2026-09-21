@@ -195,7 +195,7 @@ fun SettingsContent(
                     title = "Github",
                     icon = Icons.AutoMirrored.Rounded.OpenInNew,
                     onClick = {
-                        uriHandler.openUri("https://github.com/1754164240/Sesame-VN")
+                        uriHandler.openUri("https://github.com/Gitzzr/Sesame-ZR")
                     }
                 )
             }

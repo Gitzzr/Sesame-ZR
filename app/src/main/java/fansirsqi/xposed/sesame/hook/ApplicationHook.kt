@@ -621,7 +621,7 @@ class ApplicationHook {
                 load(userId)
                 updateDay()
 
-                val successMsg = "Loaded Sesame-VN " + BuildConfig.VERSION_NAME + "✨"
+                val successMsg = "Loaded Sesame-ZR " + BuildConfig.VERSION_NAME + "✨"
                 record(successMsg)
                 show(successMsg)
 
