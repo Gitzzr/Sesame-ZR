@@ -1,0 +1,79 @@
+name: ✅PR Check
+run-name: ✅ ${{ github.actor }} · ${{ github.ref_name }}
+
+# GitHub Flow 的校验门禁：PR 与主干推送都跑这一条。
+# 只做「能不能构建 + 测试过不过」，不做签名与分发 —— 那些属于发版职责，在 android.yml。
+# 与 android.yml 分开的原因：签名需要 4 个 secrets，缺一个就必红；
+# 把签名混进 PR 校验会让门禁永远失效（没人会认真看待一条恒定失败的红叉）。
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+# 同一分支上新的推送会取消上一次未跑完的运行，省掉排队
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: build-and-test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: ⏰ Set Timezone to Asia/Shanghai
+        run: |
+          sudo timedatectl set-timezone Asia/Shanghai
+          echo "Current time: $(date)"
+
+      - name: 👨🏻‍💻 Checkout
+        uses: actions/checkout@v4
+        with:
+          # versionCode 取自 `git rev-list --count HEAD`，必须是完整克隆（浅克隆会让版本号错）
+          fetch-depth: 0
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - name: ☕ Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "zulu"
+          cache: gradle
+
+      - name: 🤝 Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+          gradle-version: wrapper
+
+      - name: ☎️ Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: 🔨 Build debug（含 aapt2 资源处理与打包）
+        run: ./gradlew :app:assembleDebug --console=plain
+
+      - name: 🧪 Unit tests（Kotlin / JVM）
+        run: ./gradlew :app:testDebugUnitTest --console=plain
+
+      - name: 🧪 Unit tests（Web JS 合同，node:test，无 npm 依赖）
+        # 必须显式给 glob：`node --test <目录>` 在 Node 22 下会把目录当脚本执行并失败
+        run: node --test app/src/test/js/*.test.js
+
+      - name: 📊 Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: |
+            app/build/reports/tests/testDebugUnitTest
+            app/build/test-results/testDebugUnitTest
+          if-no-files-found: ignore
+
+      - name: 📦 Upload debug APK（universal）
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-debug-universal
+          path: app/build/outputs/apk/debug/*universal*.apk
+          if-no-files-found: ignore

@@ -1,11 +1,14 @@
 name: 📦Auto Build for N
 run-name: 📦 ${{ github.actor }} @ Github Action
 
+# 发版流水线：构建 release 包 → 用密钥签名 → 上传各 ABI artifact → 发 Release 时同步分发。
+#
+# 职责边界（GitHub Flow）：
+#   - PR / 主干推送的校验在 ci.yml（不签名，能稳定变绿）
+#   - 这里只在「发 Release」或手动触发时跑，因为它依赖 4 个签名 secrets：
+#     ANDROID_SIGNING_KEY / ANDROID_KEY_ALIAS / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_PASSWORD
+#   secrets 未配置时本流水线会失败 —— 这是预期的，它只在真正发版时才需要。
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
   release:
     types: [ published ]
   workflow_dispatch:
@@ -214,6 +217,7 @@ jobs:
             <b>- arm64-v8a:</b> 适用于64位ARM设备 (主流新手机)
 
       - name: 🔁 Sync Release to Target Repository
+        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ steps.extract_info.outputs.release_date }} # 发布的名称。默认为标签名称
