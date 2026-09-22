@@ -100,6 +100,9 @@ object AccountPreset {
         var appliedCount = 0
         val protectSet: Set<String> =
             if (protectOtherAccounts) otherAccountIds(targetUid).toSet() else emptySet()
+        // 本机只检测到目标账号自己时，没有可保护的账号 —— 此时**不动**用户手工配置的名单，
+        // 而不是把它清空。
+        val writeProtectList = protectOtherAccounts && protectSet.isNotEmpty()
         val protectedLabels = protectSet.map { labelOf(it) }
 
         try {
@@ -122,8 +125,8 @@ object AccountPreset {
                 }
                 val raw = field.valueFor(tier)
                 if (raw === AutoProtectAccounts) {
-                    if (!protectOtherAccounts) {
-                        // 用户选择不动名单，保持账号现状
+                    if (!writeProtectList) {
+                        // 没有可保护的账号，或用户选择不动名单：保持账号现状
                         continue
                     }
                     modelField.setObjectValue(protectSet)
@@ -133,8 +136,8 @@ object AccountPreset {
                 appliedCount++
             }
 
-            // 3. 名单类字段额外兜底：即使用户关了「保护其他账号」，也不留下历史名单
-            if (protectOtherAccounts) {
+            // 3. 名单类字段兜底：确认页勾选了「保护其他账号」时，三份名单统一写入同一集合
+            if (writeProtectList) {
                 for ((modelCode, fieldCode) in PROTECT_LIST_FIELDS) {
                     val modelField = modelConfigMap[modelCode]?.getModelField(fieldCode) ?: continue
                     modelField.setObjectValue(protectSet)
