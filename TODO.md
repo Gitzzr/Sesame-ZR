@@ -205,4 +205,4 @@ StopExecutionException: Your project path contains non-ASCII characters.
 | 🟡 P2-5 | 补 `SettingsComponents.kt` 的 `package` | 无 | 1 行 |
 | 🟡 P2-6 | `white-space: warp` 笔误 | 无 | `index.css` 一行 |
 | ~~🟢 P3~~ ✅ | ~~CI 增加测试环节~~ 已完成 2026-09-22（拆出 `ci.yml`：build + 单测） | — | workflow 改动 |
-| 🟢 P3 | 发版流水线配 4 个签名 secrets（fork 不继承上游，当前 `android.yml` 必挂） | 需用户提供 keystore | secrets，无代码变更 |
+| ~~🟢 P3~~ ✅ | ~~发版流水线配 4 个签名 secrets~~ 已完成 2026-09-22（密钥库离线保管，实测签名链路通过） | — | secrets，无代码变更 |
