@@ -15,7 +15,13 @@
 1. **主干分支是 `main`，而且只有这一条长期分支**（GitHub Flow）。改动一律走「特性分支 → PR → **Squash merge** 进 `main`」，**禁止直接往 `main` 推**。
    校验门禁是 `.github/workflows/ci.yml`（PR 与主干推送都跑：build + 单测，**不含签名**）；`.github/workflows/android.yml` 只管发版（build + 签名 + 分发，需要 4 个 secrets）。分支模型见 [`docs/development.md`](docs/development.md) §5，流水线见 §8。
 2. **不自动完成、不绕过支付宝的安全验证。** 程序能控制的只有「停止请求、调度、接口兼容」，不要把重启应用当作验证通过。
-3. **识别到安全验证响应时，只结束当前这一次调用流程**，禁止写入跨调用、跨当天的持久化暂停标记。参见 [`docs/superpowers/specs/2026-08-01-energy-rain-verification-retry-design.md`](docs/superpowers/specs/2026-08-01-energy-rain-verification-retry-design.md)。
+3. **安全验证响应只能结束「当前这一次调用流程」，不得据此判定验证通过。** 具体分两层：
+   业务功能级不得写入「跨天」的暂停标记（即「该功能今天不再尝试」），安全验证响应只结束本次流程，后续定时或手动调用应能重新查询，
+   参见 [`docs/superpowers/specs/2026-08-01-energy-rain-verification-retry-design.md`](docs/superpowers/specs/2026-08-01-energy-rain-verification-retry-design.md)；
+   RPC 链路级允许写入**有界**的本地熔断暂停标志，但必须同时满足四条：**(a)** 有 TTL 上界（≤30 分钟）；
+   **(b)** 启动时必须自愈（无时间戳或已超时的标志一律清除）；**(c)** 必须提供用户可见的解除入口（通知 / 对话框）；
+   **(d)** 到期后必须重新发起请求，不得缓存「已验证」的结论。
+   **任何版本都不得出现「用户无从解除、只能卸载宿主应用」的状态。**
 4. **所有 hook 必须经 `ModernXposedRuntime.hook(...)` / `replaceWithConstant(...)`**，不要在别处直接调 libxposed 原始 API。参数与返回值由 `HookInvocation` 统一封装。
 5. **可测的判定逻辑必须抽成 `*Policy.kt` / `*Policy` 对象**，任务类只留 RPC 编排。既有测试打的全是策略类；把分支逻辑写死在任务里就等于放弃测试。
 6. **协程里捕获异常时必须重新抛出 `CancellationException`**，不要把它当普通业务异常吞掉。

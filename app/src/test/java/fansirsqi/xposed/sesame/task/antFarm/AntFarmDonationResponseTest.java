@@ -11,7 +11,10 @@ public class AntFarmDonationResponseTest {
     @Test
     public void verificationStopsDonationButBusinessFailureDoesNot() throws Exception {
         assertTrue(AntFarmDonationResponse.requiresVerification(new JSONObject("{\"success\":false,\"resultCode\":\"RPC_VERIFICATION_REQUIRED\"}")));
-        assertTrue(AntFarmDonationResponse.requiresVerification(new JSONObject("{\"error\":1009}")));
+        // 1009 是通用业务拒绝码（访问被拒绝）。若把它判为安全验证，支付宝不会弹验证页，
+        // 任务却被永久暂停，用户只能卸载支付宝才能恢复，故必须按普通业务失败处理。
+        assertFalse(AntFarmDonationResponse.requiresVerification(new JSONObject("{\"error\":1009}")));
+        assertFalse(AntFarmDonationResponse.requiresVerification(new JSONObject("{\"success\":false,\"resultCode\":\"1009\"}")));
         assertFalse(AntFarmDonationResponse.requiresVerification(new JSONObject("{\"success\":false,\"resultCode\":\"218\"}")));
     }
 

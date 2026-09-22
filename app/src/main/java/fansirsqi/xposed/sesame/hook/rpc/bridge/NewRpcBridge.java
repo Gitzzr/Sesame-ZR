@@ -298,7 +298,7 @@ public class NewRpcBridge implements RpcBridge {
                         String methodName = rpcEntity.getRequestMethod();
 
                         if (RequestManager.isVerificationRequired(errorCode, errorMessage)) {
-                            RequestManager.handleVerificationRequired(methodName);
+                            RequestManager.handleVerificationRequired(methodName, errorCode, errorMessage);
                             return verificationRequiredResponse(rpcEntity);
                         }
 
