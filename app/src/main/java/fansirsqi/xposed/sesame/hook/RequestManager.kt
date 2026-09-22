@@ -10,13 +10,13 @@ import androidx.annotation.RequiresPermission
 import fansirsqi.xposed.sesame.entity.RpcEntity
 import fansirsqi.xposed.sesame.hook.rpc.bridge.RpcBridge
 import fansirsqi.xposed.sesame.model.BaseModel
+import fansirsqi.xposed.sesame.task.ModelTask
 import fansirsqi.xposed.sesame.util.CoroutineUtils
 import fansirsqi.xposed.sesame.util.Log
 import fansirsqi.xposed.sesame.util.NetworkUtils
 import fansirsqi.xposed.sesame.util.Notify
 import fansirsqi.xposed.sesame.util.TimeUtil
 import fansirsqi.xposed.sesame.util.maps.UserMap
-import fansirsqi.xposed.sesame.task.ModelTask
 import java.util.UUID
 
 /**
@@ -30,12 +30,44 @@ object RequestManager {
     const val VERIFICATION_REQUIRED_RESPONSE =
         """{"success":false,"resultCode":"RPC_VERIFICATION_REQUIRED","resultDesc":"触发安全验证，请人工验证后继续"}"""
 
-    private val recoveryPolicy = RpcRecoveryPolicy()
     private const val VERIFICATION_PREFS = "sesame_rpc_verification"
+
+    /** 记录标志写入时间戳的后缀，用于超时自愈。 */
+    private const val KEY_MARKED_AT_SUFFIX = "_at"
+
+    /** 记录触发风控的 RPC 方法所对应入口的后缀，用于提示用户去哪个页面找验证页。 */
+    private const val KEY_HINT_SUFFIX = "_hint"
+
+    private const val REQUEST_CODE_RESUME = 109
+    private const val REQUEST_CODE_SKIP = 110
+
+    private const val TITLE_VERIFICATION_PAUSE = "自动任务已暂停"
+
+    private val recoveryPolicy = RpcRecoveryPolicy()
     private var resumeDialogVisible = false
 
     private fun verificationPrefs() = ApplicationHook.appContext
         ?.getSharedPreferences(VERIFICATION_PREFS, Context.MODE_PRIVATE)
+
+    /**
+     * 通知文案。
+     *
+     * 必须点明去哪个页面找验证页：支付宝的安全验证页与触发它的业务场景绑定，
+     * 只写「去支付宝完成验证」会让用户在错误的页面里找不到任何入口。
+     */
+    private fun notificationText(hint: String?): String {
+        val scene = if (hint == null) "支付宝" else "「$hint」"
+        return "在$scene 触发风控。请打开支付宝进入$scene 完成验证；若没有验证页，点「跳过并恢复」"
+    }
+
+    private fun dialogText(hint: String?): String {
+        val sceneLine = if (hint == null) "" else "触发场景：「$hint」\n\n"
+        return "检测到支付宝风控拦截，自动任务已暂停。\n\n" +
+            sceneLine +
+            "· 验证页与该场景绑定：请打开支付宝并进入上述页面，查看是否出现安全验证；" +
+            "完成验证后点「已验证，恢复任务」\n" +
+            "· 若该页面没有任何验证入口：点「跳过并恢复」即可继续自动任务"
+    }
 
     @JvmStatic
     fun isVerificationPaused(): Boolean = recoveryPolicy.blockReason == RpcBlockReason.VERIFICATION
@@ -45,76 +77,165 @@ object RequestManager {
         return result.isNullOrBlank()
     }
 
+    /**
+     * 判断服务端响应是否要求人工安全验证。
+     *
+     * 判定收敛在 [VerificationPausePolicy]：只认风控文案与专用码。
+     * 像 `1009` 这类通用业务拒绝码不再单独判定 —— 否则任务会被无谓暂停，
+     * 而支付宝根本不会弹出验证页，用户无从操作。
+     */
     @JvmStatic
     fun isVerificationRequired(errorCode: String?, errorMessage: String?): Boolean {
-        val message = errorMessage.orEmpty()
-        return errorCode == "1009" ||
-            message.contains("为保障您的正常访问，请进行验证后继续") ||
-            message.contains("为了保障您的操作安全，请进行验证后继续") ||
-            message.contains("请进行验证后继续")
+        if (VerificationPausePolicy.requiresVerification(errorCode, errorMessage)) {
+            return true
+        }
+        if (errorCode == VerificationPausePolicy.BUSINESS_REJECT_CODE) {
+            Log.record(
+                TAG,
+                "收到 ${errorCode}（业务拒绝），未判定为安全验证 | msg=${errorMessage.orEmpty()}"
+            )
+        }
+        return false
     }
 
     @JvmStatic
-    fun handleVerificationRequired(method: String?) {
+    fun handleVerificationRequired(method: String?, errorCode: String?, errorMessage: String?) {
+        Log.record(TAG, "触发安全验证 | method=$method | code=$errorCode | msg=$errorMessage")
         ApplicationHook.setOffline(true)
         if (recoveryPolicy.onVerificationRequired() != RecoveryDecision.WAIT_FOR_MANUAL_VERIFICATION) {
             return
         }
 
-        UserMap.currentUid?.let { uid ->
-            verificationPrefs()?.edit()?.putString(uid, UUID.randomUUID().toString())?.commit()
-        }
+        val hint = VerificationPausePolicy.entryHintFor(method)
+        UserMap.currentUid?.let { uid -> markVerification(uid, hint) }
         ModelTask.stopAllTask()
-        Log.record(TAG, "检测到安全验证，暂停后续RPC请求: $method")
+        Log.record(TAG, "检测到安全验证，暂停后续RPC请求: $method | 建议入口: ${hint ?: "未知"}")
         notifyVerificationPause()
+    }
+
+    private fun markVerification(uid: String, hint: String?) {
+        verificationPrefs()?.edit()
+            ?.putString(uid, UUID.randomUUID().toString())
+            ?.putLong(uid + KEY_MARKED_AT_SUFFIX, System.currentTimeMillis())
+            ?.putString(uid + KEY_HINT_SUFFIX, hint.orEmpty())
+            ?.commit()
+    }
+
+    private fun clearVerification(uid: String) {
+        verificationPrefs()?.edit()
+            ?.remove(uid)
+            ?.remove(uid + KEY_MARKED_AT_SUFFIX)
+            ?.remove(uid + KEY_HINT_SUFFIX)
+            ?.commit()
+    }
+
+    private fun readHint(uid: String): String? =
+        verificationPrefs()?.getString(uid + KEY_HINT_SUFFIX, null)?.takeIf { it.isNotEmpty() }
+
+    private fun resumeIntent(context: Context, uid: String): Intent? {
+        val token = verificationPrefs()?.getString(uid, null) ?: return null
+        return Intent(ApplicationHook.BroadcastActions.RESUME_VERIFIED)
+            .setPackage(context.packageName)
+            .putExtra(ApplicationHook.BroadcastActions.EXTRA_USER_ID, uid)
+            .putExtra(ApplicationHook.BroadcastActions.EXTRA_VERIFICATION_TOKEN, token)
+    }
+
+    private fun skipIntent(context: Context, uid: String): Intent? {
+        val token = verificationPrefs()?.getString(uid, null)
+        return Intent(ApplicationHook.BroadcastActions.SKIP_VERIFICATION)
+            .setPackage(context.packageName)
+            .putExtra(ApplicationHook.BroadcastActions.EXTRA_USER_ID, uid)
+            .putExtra(ApplicationHook.BroadcastActions.EXTRA_VERIFICATION_TOKEN, token.orEmpty())
     }
 
     private fun notifyVerificationPause() {
         val context = ApplicationHook.appContext ?: return
         val uid = UserMap.currentUid ?: return
-        val token = verificationPrefs()?.getString(uid, null) ?: return
-        val intent = Intent(ApplicationHook.BroadcastActions.RESUME_VERIFIED)
-            .setPackage(context.packageName)
-            .putExtra("userId", uid)
-            .putExtra("verificationToken", token)
-        val action = PendingIntent.getBroadcast(context, 109,
-            intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        Notify.sendNewNotification("自动任务已暂停", "请先在支付宝完成验证，再点已验证恢复", action)
+        val resume = resumeIntent(context, uid) ?: return
+        val resumeAction = PendingIntent.getBroadcast(
+            context, REQUEST_CODE_RESUME,
+            resume, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val skip = skipIntent(context, uid)
+        val skipAction = if (skip != null) {
+            PendingIntent.getBroadcast(
+                context, REQUEST_CODE_SKIP,
+                skip, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        } else {
+            null
+        }
+        Notify.sendNewNotification(
+            TITLE_VERIFICATION_PAUSE,
+            notificationText(readHint(uid)),
+            resumeAction,
+            skipAction
+        )
     }
 
     fun showVerificationResumeDialog(activity: Activity) {
         if (!isVerificationPaused() || resumeDialogVisible || activity.isFinishing || activity.isDestroyed) return
         val uid = UserMap.currentUid ?: return
-        val token = verificationPrefs()?.getString(uid, null) ?: return
+        val resume = resumeIntent(activity, uid) ?: return
+        val skip = skipIntent(activity, uid)
         resumeDialogVisible = true
         AlertDialog.Builder(activity)
-            .setTitle("自动任务已暂停")
-            .setMessage("完成支付宝安全验证后，可恢复自动任务。")
+            .setTitle(TITLE_VERIFICATION_PAUSE)
+            .setMessage(dialogText(readHint(uid)))
             .setNegativeButton("保持暂停", null)
+            .setNeutralButton("跳过并恢复") { _, _ ->
+                skip?.let { activity.sendBroadcast(it) }
+            }
             .setPositiveButton("已验证，恢复任务") { _, _ ->
-                activity.sendBroadcast(Intent(ApplicationHook.BroadcastActions.RESUME_VERIFIED)
-                    .setPackage(activity.packageName).putExtra("userId", uid)
-                    .putExtra("verificationToken", token))
+                activity.sendBroadcast(resume)
             }
             .setOnDismissListener { resumeDialogVisible = false }
             .show()
     }
 
+    /** 「已验证，恢复任务」入口：校验一次性令牌。 */
+    @JvmStatic
+    fun resumeAfterManualVerification(intent: Intent): Boolean =
+        resumePausedTasks(intent, requireToken = true)
+
+    /** 「跳过并恢复」入口：不校验令牌，给误判场景留一条自救通路。 */
+    @JvmStatic
+    fun forceResumeAfterVerification(intent: Intent): Boolean =
+        resumePausedTasks(intent, requireToken = false)
+
+    /**
+     * 解除安全验证暂停。
+     *
+     * [requireToken] 为 true 时代表用户从「已验证」入口触发，需令牌匹配；
+     * 为 false 时代表用户主动「跳过并恢复」。
+     *
+     * 关键约束：只要账户一致就清除暂停标志，**任何校验分支都不得把标志留在原地** ——
+     * 旧实现正是在各早退分支里 `return false` 而不清标志，导致状态永久卡死、
+     * 每次启动支付宝都被重新暂停，用户只能卸载支付宝才能恢复。
+     */
     @Synchronized
-    fun resumeAfterManualVerification(intent: Intent): Boolean {
+    private fun resumePausedTasks(intent: Intent, requireToken: Boolean): Boolean {
         val uid = UserMap.currentUid ?: return false
-        val expected = verificationPrefs()?.getString(uid, null) ?: return false
-        if (intent.getStringExtra("userId") != uid ||
-            intent.getStringExtra("verificationToken") != expected) return false
-        // 先等待旧业务退出，避免解除暂停时旧请求继续发出。
-        Log.record(TAG, "等待已暂停任务退出后恢复")
+        val intentUid = intent.getStringExtra(ApplicationHook.BroadcastActions.EXTRA_USER_ID)
+        if (intentUid != null && intentUid != uid) return false
+
+        val expected = verificationPrefs()?.getString(uid, null)
+        val tokenMatched =
+            intent.getStringExtra(ApplicationHook.BroadcastActions.EXTRA_VERIFICATION_TOKEN) == expected
+        if (requireToken && !tokenMatched) return false
+        if (expected == null && !isVerificationPaused()) {
+            Log.record(TAG, "当前未处于安全验证暂停，忽略恢复指令")
+            return false
+        }
+
+        Log.record(TAG, "收到恢复指令（跳过验证=${!requireToken}，令牌匹配=$tokenMatched），等待已暂停任务退出")
         kotlinx.coroutines.runBlocking { ModelTask.stopAllTaskAndJoin() }
-        if (UserMap.currentUid != uid || !isVerificationPaused() ||
-            verificationPrefs()?.getString(uid, null) != expected) return false
-        verificationPrefs()?.edit()?.remove(uid)?.commit()
+        if (UserMap.currentUid != uid) return false
+
+        clearVerification(uid)
         recoveryPolicy.reset()
         ApplicationHook.setOffline(false)
-        Log.record(TAG, "已由用户确认恢复自动任务")
+        Log.record(TAG, "已解除安全验证暂停，恢复自动任务")
         return true
     }
 
@@ -199,16 +320,29 @@ object RequestManager {
         }
     }
 
+    /**
+     * 桥接就绪时恢复暂停状态。
+     *
+     * 暂停标志按账号持久化在宿主私有存储里，进程重启后需要重建；但标志必须带超时，
+     * 否则一次误判就会让用户每次打开支付宝都被暂停，且模块侧没有清除入口。
+     */
     @JvmStatic
     fun onRpcBridgeReady() {
         val uid = UserMap.currentUid
         recoveryPolicy.reset()
-        if (uid != null && verificationPrefs()?.contains(uid) == true) {
-            recoveryPolicy.onVerificationRequired()
-            ApplicationHook.setOffline(true)
-            Log.record(TAG, "保留安全验证暂停状态，等待用户确认恢复")
-            notifyVerificationPause()
+        if (uid == null || verificationPrefs()?.contains(uid) != true) return
+
+        val markedAt = verificationPrefs()?.getLong(uid + KEY_MARKED_AT_SUFFIX, 0L) ?: 0L
+        if (VerificationPausePolicy.isMarkExpired(markedAt, System.currentTimeMillis())) {
+            clearVerification(uid)
+            Log.record(TAG, "安全验证暂停标志已超时或来自旧版本，自动解除")
+            return
         }
+
+        recoveryPolicy.onVerificationRequired()
+        ApplicationHook.setOffline(true)
+        Log.record(TAG, "保留安全验证暂停状态，等待用户确认恢复")
+        notifyVerificationPause()
     }
 
     /**

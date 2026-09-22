@@ -93,9 +93,18 @@ class ApplicationHook {
         const val RESTART: String = "com.eg.android.AlipayGphone.sesame.restart"
         const val RE_LOGIN: String = "com.eg.android.AlipayGphone.sesame.reLogin"
         const val RESUME_VERIFIED: String = "com.eg.android.AlipayGphone.sesame.resumeVerified"
+
+        /** 用户明确选择「跳过安全验证」时恢复自动任务，给误判场景留一条自救通路。 */
+        const val SKIP_VERIFICATION: String = "com.eg.android.AlipayGphone.sesame.skipVerification"
         const val STATUS: String = "com.eg.android.AlipayGphone.sesame.status"
         const val RPC_TEST: String = "com.eg.android.AlipayGphone.sesame.rpctest"
         const val MANUAL_TASK: String = "com.eg.android.AlipayGphone.sesame.manual_task"
+
+        /** 广播载荷：目标账号。 */
+        const val EXTRA_USER_ID: String = "userId"
+
+        /** 广播载荷：一次性验证令牌，仅用于「已验证」入口防重放。 */
+        const val EXTRA_VERIFICATION_TOKEN: String = "verificationToken"
     }
 
     private object AlipayClasses {
@@ -348,6 +357,11 @@ class ApplicationHook {
                 BroadcastActions.RE_LOGIN -> reOpenApp()
                 BroadcastActions.RESUME_VERIFIED -> execute {
                     if (RequestManager.resumeAfterManualVerification(intent)) {
+                        execHandler()
+                    }
+                }
+                BroadcastActions.SKIP_VERIFICATION -> execute {
+                    if (RequestManager.forceResumeAfterVerification(intent)) {
                         execHandler()
                     }
                 }
@@ -813,6 +827,7 @@ class ApplicationHook {
                 filter.addAction(BroadcastActions.RESTART)
                 filter.addAction(BroadcastActions.RE_LOGIN)
                 filter.addAction(BroadcastActions.RESUME_VERIFIED)
+                filter.addAction(BroadcastActions.SKIP_VERIFICATION)
                 filter.addAction(BroadcastActions.STATUS)
                 filter.addAction(BroadcastActions.RPC_TEST)
                 filter.addAction(BroadcastActions.MANUAL_TASK)
@@ -820,11 +835,14 @@ class ApplicationHook {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     context.registerReceiver(mBroadcastReceiver, filter, Context.RECEIVER_EXPORTED)
                 } else {
+                    // 必须导出：模块自身 App（fansirsqi.xposed.sesame）需要通过广播下发
+                    // 「手动任务 / 重置安全验证暂停」等显式指令，NOT_EXPORTED 会让这些
+                    // 指令在 Android 12 及以下收不到。动作本身仍需用户在界面上显式触发。
                     ContextCompat.registerReceiver(
                         context,
                         mBroadcastReceiver,
                         filter,
-                        ContextCompat.RECEIVER_NOT_EXPORTED
+                        ContextCompat.RECEIVER_EXPORTED
                     )
                 }
                 record(TAG, "BroadcastReceiver registered")
