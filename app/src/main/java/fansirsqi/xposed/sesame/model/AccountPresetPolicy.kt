@@ -215,6 +215,7 @@ object AccountPresetPolicy {
                 self(FOREST, "CollectSelfEnergyType", "收自己单个能量球方式", NONE, NONE),
                 self(FOREST, "CollectSelfEnergyThreshold", "收自己单个能量球阈值", KEEP, KEEP),
                 self(FOREST, "robExpandCardLimt", "收取翻倍能量阈值", KEEP, KEEP),
+                self(FOREST, "robExpandCardTime", "1.1 倍能量卡使用时间", KEEP, KEEP),
                 self(FOREST, "CollectBombEnergyLimit", "单个炸弹能量大于该值收取", KEEP, KEEP),
                 self(FOREST, "collectWateringBubble", "收取浇水金球", ON, OFF),
                 self(FOREST, "collectProp", "收集道具", ON, OFF),

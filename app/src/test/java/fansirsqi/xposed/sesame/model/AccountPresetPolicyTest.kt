@@ -79,12 +79,23 @@ class AccountPresetPolicyTest {
     }
 
     @Test
-    fun `预设表登记的模型代码都在 ModelOrder 中注册`() {
-        val unknown = AccountPresetPolicy.FIELDS
-            .map { it.modelCode }
-            .distinct()
-            .filterNot { modelOrderSource.contains("$it::class.java") }
-        assertTrue("以下模型代码未在 ModelOrder 中注册：$unknown", unknown.isEmpty())
+    fun `预设表覆盖的模型与 ModelOrder 注册的模型完全一致`() {
+        val registered = Regex("""(\w+)::class\.java""")
+            .findAll(modelOrderSource)
+            .map { it.groupValues[1] }
+            .toSet()
+        val covered = AccountPresetPolicy.FIELDS.map { it.modelCode }.toSet()
+
+        assertEquals(
+            "预设表未覆盖以下已注册模型：${registered - covered}",
+            emptySet<String>(),
+            registered - covered,
+        )
+        assertEquals(
+            "预设表登记了未注册的模型：${covered - registered}",
+            emptySet<String>(),
+            covered - registered,
+        )
     }
 
     @Test
