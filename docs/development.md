@@ -425,9 +425,12 @@ flowchart LR
 
 签名需要的 secrets：`ANDROID_SIGNING_KEY`、`ANDROID_KEY_ALIAS`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_PASSWORD`。
 
-> ⚠️ 本仓库是 **fork，不会继承上游的 secrets**。当前一个都没配，所以 `android.yml` 一旦触发必然倒在
-> 「🔐 Sign APKs」这一步（报 `Cannot find signingKey/ANDROID_SIGNING_KEY`）。这属于**预期**行为 ——
-> 它只在真正发版时才需要；要发版请先配好这 4 个 secrets。
+> ⚠️ 本仓库是 **fork，不会继承上游的 secrets**。这 4 个 secrets **已于 2026-09-22 配置完成**，
+> 发版链路可用 —— 触发一次 `workflow_dispatch` 已实测能产出 5 个已签名的 ABI 产物。
+>
+> 密钥库由维护者**离线保管，不在仓库内**。注意 GitHub 的 secret 是**只读的，取不回来**，
+> 所以那份离线副本是唯一凭据：**一旦丢失就再也无法用同一签名发布更新**，用户只能卸载重装。
+> 请确保它有独立于本机的备份。
 >
 > 另外注意：`app/build.gradle.kts` 里 `release` 用的也是 `signingConfigs.getByName("debug")`，
 > 也就是本地 `assembleRelease` 产出的是 **debug 签名**包。真正的发布签名完全由 `android.yml` 的
