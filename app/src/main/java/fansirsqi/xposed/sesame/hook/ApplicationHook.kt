@@ -435,8 +435,9 @@ class ApplicationHook {
         const val TAG: String = "ApplicationHook" // 简化TAG
         var finalProcessName: String? = ""
 
-        // 广播接收器实例，用于注销
-        private var mBroadcastReceiver: AlipayBroadcastReceiver? = null
+        // 广播接收器实例，用于注销。按发送方信任边界拆成两个（见 registerBroadcastReceiver）。
+        private var mCommandReceiver: AlipayBroadcastReceiver? = null
+        private var mRescueReceiver: AlipayBroadcastReceiver? = null
 
         @JvmField
         var classLoader: ClassLoader? = null
@@ -819,49 +820,94 @@ class ApplicationHook {
         }
 
         fun registerBroadcastReceiver(context: Context) {
-            if (mBroadcastReceiver != null) return  // 防止重复注册
+            if (mCommandReceiver != null) return  // 防止重复注册
 
             try {
-                mBroadcastReceiver = AlipayBroadcastReceiver()
-                val filter = IntentFilter()
-                filter.addAction(BroadcastActions.RESTART)
-                filter.addAction(BroadcastActions.RE_LOGIN)
-                filter.addAction(BroadcastActions.RESUME_VERIFIED)
-                filter.addAction(BroadcastActions.SKIP_VERIFICATION)
-                filter.addAction(BroadcastActions.STATUS)
-                filter.addAction(BroadcastActions.RPC_TEST)
-                filter.addAction(BroadcastActions.MANUAL_TASK)
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    context.registerReceiver(mBroadcastReceiver, filter, Context.RECEIVER_EXPORTED)
-                } else {
-                    // 必须导出：模块自身 App（fansirsqi.xposed.sesame）需要通过广播下发
-                    // 「手动任务 / 重置安全验证暂停」等显式指令，NOT_EXPORTED 会让这些
-                    // 指令在 Android 12 及以下收不到。动作本身仍需用户在界面上显式触发。
-                    ContextCompat.registerReceiver(
-                        context,
-                        mBroadcastReceiver,
-                        filter,
-                        ContextCompat.RECEIVER_EXPORTED
-                    )
+                // 命令通道：模块 App（fansirsqi.xposed.sesame）在自己的进程里下发
+                // 「手动任务 / 重启 / 调试」等指令，跨进程投递**必须导出**。
+                // 动作本身仍需用户在界面上显式触发。
+                val commandReceiver = AlipayBroadcastReceiver()
+                mCommandReceiver = commandReceiver
+                val commandFilter = IntentFilter().apply {
+                    addAction(BroadcastActions.RESTART)
+                    addAction(BroadcastActions.STATUS)
+                    addAction(BroadcastActions.RPC_TEST)
+                    addAction(BroadcastActions.MANUAL_TASK)
                 }
+                registerDynamicReceiver(context, commandReceiver, commandFilter, exported = true)
+
+                // 自救通道：只承载「恢复安全验证暂停 / 重新登录」，发送方**只有宿主自身**
+                // （通知的 PendingIntent、宿主对话框，以及 RPC 桥内部的 reLoginByBroadcast），
+                // 因此不需要导出 —— 外部 App 伪造的恢复广播会被系统直接丢弃。
+                val rescueReceiver = AlipayBroadcastReceiver()
+                mRescueReceiver = rescueReceiver
+                val rescueFilter = IntentFilter().apply {
+                    addAction(BroadcastActions.RESUME_VERIFIED)
+                    addAction(BroadcastActions.SKIP_VERIFICATION)
+                    addAction(BroadcastActions.RE_LOGIN)
+                }
+                // ⚠️ 12L 及以下不能用 NOT_EXPORTED：ContextCompat 在 API < 33 上会要求本应用
+                // manifest 声明 `<包名>.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`，否则直接抛异常。
+                // 而这里是注册在宿主（支付宝）进程里的，宿主 APK 已原样签名、无法新增权限声明，
+                // 强行使用会让整个接收器注册失败 —— Android 8.0–12L 上曾因此彻底收不到任何广播。
+                // 故仅 13+ 使用原生 NOT_EXPORTED，12L 及以下退化为导出，由 RequestManager
+                // 的令牌校验兜底（令牌是随机 UUID 且只存在宿主私有存储，外部应用无从获知）。
+                registerDynamicReceiver(
+                    context,
+                    rescueReceiver,
+                    rescueFilter,
+                    exported = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+                )
+
                 record(TAG, "BroadcastReceiver registered")
             } catch (th: Throwable) {
-                mBroadcastReceiver = null
+                unregisterBroadcastReceiver(context)
                 printStackTrace(TAG, "Register Receiver failed", th)
             }
         }
 
-        fun unregisterBroadcastReceiver(context: Context?) {
-            if (mBroadcastReceiver == null || context == null) return
-            try {
-                context.unregisterReceiver(mBroadcastReceiver)
-                record(TAG, "BroadcastReceiver unregistered")
-            } catch (_: Throwable) {
-                // ignore: receiver not registered
-            } finally {
-                mBroadcastReceiver = null
+        /**
+         * 注册动态广播接收器。
+         *
+         * [exported] 为 false 时使用 Android 13 引入的 `RECEIVER_NOT_EXPORTED`；
+         * 该能力在 12L 及以下没有等价实现，调用前请确认已了解其限制。
+         */
+        private fun registerDynamicReceiver(
+            context: Context,
+            receiver: BroadcastReceiver,
+            filter: IntentFilter,
+            exported: Boolean
+        ) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.registerReceiver(
+                    receiver,
+                    filter,
+                    if (exported) Context.RECEIVER_EXPORTED else Context.RECEIVER_NOT_EXPORTED
+                )
+            } else {
+                ContextCompat.registerReceiver(
+                    context,
+                    receiver,
+                    filter,
+                    ContextCompat.RECEIVER_EXPORTED
+                )
             }
+        }
+
+        fun unregisterBroadcastReceiver(context: Context?) {
+            if (context == null) return
+            var unregistered = false
+            for (receiver in listOfNotNull(mCommandReceiver, mRescueReceiver)) {
+                try {
+                    context.unregisterReceiver(receiver)
+                    unregistered = true
+                } catch (_: Throwable) {
+                    // ignore: receiver not registered
+                }
+            }
+            mCommandReceiver = null
+            mRescueReceiver = null
+            if (unregistered) record(TAG, "BroadcastReceiver unregistered")
         }
     }
 }
