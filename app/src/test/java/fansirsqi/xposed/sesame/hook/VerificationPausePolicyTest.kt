@@ -107,4 +107,46 @@ class VerificationPausePolicyTest {
         assertTrue(VerificationPausePolicy.isMarkExpired(0L, System.currentTimeMillis()))
         assertTrue(VerificationPausePolicy.isMarkExpired(-1L, System.currentTimeMillis()))
     }
+
+    @Test
+    fun `启动时按标志状态决定清除标志还是重建暂停`() {
+        val now = System.currentTimeMillis()
+
+        // 没有标志：什么都不做
+        assertEquals(
+            PauseRestoreAction.NONE,
+            VerificationPausePolicy.restoreActionFor(hasMark = false, markedAt = 0L, now = now)
+        )
+        // 有标志且在保留期内：重建暂停
+        assertEquals(
+            PauseRestoreAction.RESTORE_PAUSE,
+            VerificationPausePolicy.restoreActionFor(
+                hasMark = true,
+                markedAt = now - 60_000L,
+                now = now
+            )
+        )
+        // 有标志但已超时：清除
+        assertEquals(
+            PauseRestoreAction.CLEAR_MARK,
+            VerificationPausePolicy.restoreActionFor(
+                hasMark = true,
+                markedAt = now - VerificationPausePolicy.VERIFICATION_TTL_MS - 1,
+                now = now
+            )
+        )
+    }
+
+    @Test
+    fun `旧版本遗留的无时间戳标志在启动时被清除`() {
+        // 这条路径正是「升级后仍被永久卡住」的必经分支，必须有测试兜住。
+        assertEquals(
+            PauseRestoreAction.CLEAR_MARK,
+            VerificationPausePolicy.restoreActionFor(
+                hasMark = true,
+                markedAt = 0L,
+                now = System.currentTimeMillis()
+            )
+        )
+    }
 }
