@@ -198,7 +198,11 @@ object RequestManager {
     fun resumeAfterManualVerification(intent: Intent): Boolean =
         resumePausedTasks(intent, requireToken = true)
 
-    /** 「跳过并恢复」入口：不校验令牌，给误判场景留一条自救通路。 */
+    /**
+     * 「跳过并恢复」入口：不要求用户先完成验证，给误判场景留一条自救通路。
+     *
+     * 但仍须出示令牌 —— 见 [resumePausedTasks] 的说明。
+     */
     @JvmStatic
     fun forceResumeAfterVerification(intent: Intent): Boolean =
         resumePausedTasks(intent, requireToken = false)
@@ -206,12 +210,15 @@ object RequestManager {
     /**
      * 解除安全验证暂停。
      *
-     * [requireToken] 为 true 时代表用户从「已验证」入口触发，需令牌匹配；
-     * 为 false 时代表用户主动「跳过并恢复」。
+     * [requireToken] 为 true 时代表用户从「已验证」入口触发；为 false 时代表「跳过并恢复」。
+     * 两者的区别只在于是否要求用户先完成验证，**令牌校验对两者都生效**（见下）。
      *
-     * 关键约束：只要账户一致就清除暂停标志，**任何校验分支都不得把标志留在原地** ——
+     * 关键约束：只要账户一致、且调用方通过了校验，就必须清除暂停标志 ——
      * 旧实现正是在各早退分支里 `return false` 而不清标志，导致状态永久卡死、
      * 每次启动支付宝都被重新暂停，用户只能卸载支付宝才能恢复。
+     * 如今唯一会「保留标志」的早退分支是令牌不匹配，而合法入口（通知 / 对话框）
+     * 必然携带正确令牌；即便真的走到该分支，也有 30 分钟 TTL 与启动自愈兜底，
+     * 不再构成卡死路径。
      */
     @Synchronized
     private fun resumePausedTasks(intent: Intent, requireToken: Boolean): Boolean {
@@ -223,6 +230,15 @@ object RequestManager {
         val tokenMatched =
             intent.getStringExtra(ApplicationHook.BroadcastActions.EXTRA_VERIFICATION_TOKEN) == expected
         if (requireToken && !tokenMatched) return false
+
+        // 只要宿主私有存储里存有令牌，任何入口都必须出示它。
+        // 令牌是随机 UUID，仅通过通知与对话框的 PendingIntent 下发，外部应用无从获知；
+        // 而接收器在 Android 12 及以下必须导出，这道校验是挡住伪造「跳过并恢复」广播的关键。
+        if (expected != null && !tokenMatched) {
+            Log.record(TAG, "恢复指令令牌不匹配，已忽略（可能来自外部应用）")
+            return false
+        }
+
         if (expected == null && !isVerificationPaused()) {
             Log.record(TAG, "当前未处于安全验证暂停，忽略恢复指令")
             return false
@@ -330,19 +346,30 @@ object RequestManager {
     fun onRpcBridgeReady() {
         val uid = UserMap.currentUid
         recoveryPolicy.reset()
-        if (uid == null || verificationPrefs()?.contains(uid) != true) return
+        if (uid == null) return
 
-        val markedAt = verificationPrefs()?.getLong(uid + KEY_MARKED_AT_SUFFIX, 0L) ?: 0L
-        if (VerificationPausePolicy.isMarkExpired(markedAt, System.currentTimeMillis())) {
-            clearVerification(uid)
-            Log.record(TAG, "安全验证暂停标志已超时或来自旧版本，自动解除")
-            return
+        // 决策抽在 VerificationPausePolicy.restoreActionFor 里，便于纯单测覆盖。
+        val prefs = verificationPrefs()
+        val action = VerificationPausePolicy.restoreActionFor(
+            hasMark = prefs?.contains(uid) == true,
+            markedAt = prefs?.getLong(uid + KEY_MARKED_AT_SUFFIX, 0L) ?: 0L,
+            now = System.currentTimeMillis()
+        )
+        when (action) {
+            PauseRestoreAction.NONE -> return
+
+            PauseRestoreAction.CLEAR_MARK -> {
+                clearVerification(uid)
+                Log.record(TAG, "安全验证暂停标志已超时或来自旧版本，自动解除")
+            }
+
+            PauseRestoreAction.RESTORE_PAUSE -> {
+                recoveryPolicy.onVerificationRequired()
+                ApplicationHook.setOffline(true)
+                Log.record(TAG, "保留安全验证暂停状态，等待用户确认恢复")
+                notifyVerificationPause()
+            }
         }
-
-        recoveryPolicy.onVerificationRequired()
-        ApplicationHook.setOffline(true)
-        Log.record(TAG, "保留安全验证暂停状态，等待用户确认恢复")
-        notifyVerificationPause()
     }
 
     /**

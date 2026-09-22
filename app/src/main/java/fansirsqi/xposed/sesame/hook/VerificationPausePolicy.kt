@@ -13,6 +13,20 @@ package fansirsqi.xposed.sesame.hook
  * `error=3000, errorMessage="系统出错，正在排查"`。因此「文案判定」既能完整命中真实风控，
  * 又能排除普通错误，不需要保留 1009 单码判定。
  */
+/**
+ * 启动（RPC 桥就绪）时，对已落盘的暂停标志应当采取的动作。
+ */
+enum class PauseRestoreAction {
+    /** 没有暂停标志，无需处理。 */
+    NONE,
+
+    /** 标志已超时、或来自没有时间戳的旧版本：清除标志并恢复正常。 */
+    CLEAR_MARK,
+
+    /** 标志仍在保留期内：重建暂停状态并提示用户。 */
+    RESTORE_PAUSE
+}
+
 object VerificationPausePolicy {
 
     /** 服务端真正要求人工安全验证时携带的文案。 */
@@ -90,5 +104,22 @@ object VerificationPausePolicy {
     fun isMarkExpired(markedAt: Long, now: Long): Boolean {
         if (markedAt <= 0L) return true
         return now - markedAt > VERIFICATION_TTL_MS
+    }
+
+    /**
+     * 启动时对已落盘暂停标志应当采取的动作。
+     *
+     * 把「读标志 → 判过期 → 决策」抽成纯函数，是为了让这条分支能被 JVM 单测覆盖：
+     * 标志本身存在宿主私有 SharedPreferences 里，单测无法直接构造，
+     * 而它恰恰是「升级后继续被永久卡住」的必经路径（见 2026-09-21 plan 第九节）。
+     */
+    @JvmStatic
+    fun restoreActionFor(hasMark: Boolean, markedAt: Long, now: Long): PauseRestoreAction {
+        if (!hasMark) return PauseRestoreAction.NONE
+        return if (isMarkExpired(markedAt, now)) {
+            PauseRestoreAction.CLEAR_MARK
+        } else {
+            PauseRestoreAction.RESTORE_PAUSE
+        }
     }
 }
