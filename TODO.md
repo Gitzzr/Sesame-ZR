@@ -112,6 +112,17 @@ StopExecutionException: Your project path contains non-ASCII characters.
 
 **约束**：只有用户本来就打算捐赠时才抓实际捐赠，**不要为排查额外消耗鸡蛋**。普通项目参数必须保持兼容。
 
+### P1-3 账号档位（大号 / 小号）一键切换的实机回归
+
+代码、单测与 CI 三步均已完成（见 [`docs/superpowers/plans/2026-09-23-account-preset.md`](docs/superpowers/plans/2026-09-23-account-preset.md)），
+剩下的是实机确认：
+
+- [ ] 小米 17（大号）切到大号档，确认收能量 / 一键收取 / Pk 榜等能力确实开启
+- [ ] K50 至尊版（小号）切到小号档，确认不再收取好友能量，对照大号能量流水核对
+- [ ] 同一台设备上两个账号互为好友时，确认三份保护名单写入了对方账号
+- [ ] 切换后广播生效：配置无需重启支付宝即被重载
+- [ ] 日志核对：切到小号档后 `AntForest` 不再出现针对好友的收取调用
+
 ---
 
 ## 🟡 P2 · 已知缺陷 / 待补证据
@@ -200,6 +211,7 @@ StopExecutionException: Your project path contains non-ASCII characters.
 | ~~🔴 P0-2~~ ✅ | ~~装 JDK 17 + Android SDK 37~~ 已完成 2026-09-21 | — | 环境，无代码变更 |
 | 🟠 P1-1 | 安全验证与调度修复的实机回归 | 真机 | 无代码变更，纯验证 |
 | 🟠 P1-2 | 自营项目捐蛋 | **需要用户提供抓包样本** | `AntFarm.kt` + 协议测试 |
+| 🟠 P1-3 | 账号档位（大号/小号）一键切换的实机回归 | 真机 | 无代码变更，纯验证 |
 | 🟡 P2-1 | 青春特权 3000 | **需要抓包样本** | 会员模块 |
 | 🟡 P2-4 | HTTP 接口鉴权统一 | 需确认使用场景 | `hook/server/` |
 | 🟡 P2-5 | 补 `SettingsComponents.kt` 的 `package` | 无 | 1 行 |
