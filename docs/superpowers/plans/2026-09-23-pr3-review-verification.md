@@ -273,3 +273,82 @@ obtainAndCheckReceiverPermission(context):
 
 - **Android 13+**：外部 App 伪造 `SKIP_VERIFICATION` 应被系统直接丢弃；通知与对话框三处入口应正常。
 - **Android 8.0–12L**：命令通道（模块 App 的「手动任务 / 重启」）应恢复可用；伪造的恢复广播应被令牌校验拒绝。
+
+## 七、实机测试中发现的额外缺陷（2026-09-23，Android 10 设备）
+
+为验证「Android 8.0–12L」区间，接入了一台已 root 的 MI 9（Android 10 / API 29）。环境探测中发现了一个**比导出级别更严重**的缺陷。
+
+### 7.1 缺陷：正式包里广播接收器从未注册
+
+`ApplicationHook.initHandler()` 中，`registerBroadcastReceiver` 的**唯一调用点**被包在调试分支内：
+
+```kotlin
+// 调试模式初始化
+if (BuildConfig.DEBUG) {
+    try {
+        startIfNeeded(8080, "ET3vB^#td87sQqKaY*eMUJXP", processName, General.PACKAGE_NAME)
+        registerBroadcastReceiver(appContext!!)   // ← 唯一调用点
+    } catch (_: Throwable) { /* ignore */ }
+}
+```
+
+而 `unregisterBroadcastReceiver`（在 `stopHandler` 内）**没有**被门控 —— 注册被门控、注销没被门控，
+这个不对称说明它是疏漏而非有意设计。
+
+三重证据：
+
+| 证据 | 结论 |
+| --- | --- |
+| `AndroidManifest.xml` 中没有任何 `<receiver>` 声明 | 没有声明式兜底 |
+| `release` 构建 `isDebuggable = false`、`isMinifyEnabled = true` | `BuildConfig.DEBUG` 为 false，且 R8 会裁掉不可达代码 |
+| `.github/workflows/android.yml` 发布用 `./gradlew assembleRelease` | 用户实际安装的正是这个被裁剪过的包 |
+
+**后果**：正式包里接收器不存在 → 「重启」「手动任务」「已验证，恢复任务」「跳过并恢复」全部失效。
+其中**「跳过并恢复」正是本 PR 新增的自救入口**，即该功能在正式发布的包中从未生效。
+
+### 7.2 这澄清了「指令收不到」的真正根因
+
+PR 原先把这个现象归因于 `RECEIVER_NOT_EXPORTED` 的导出级别问题。实测澄清这是**两个独立缺陷**：
+
+| 构建类型 | 现象 | 根因 |
+| --- | --- | --- |
+| 发行版（release） | 接收器压根没注册，**与 Android 版本无关** | 注册调用被 `BuildConfig.DEBUG` 门控 + R8 裁剪 |
+| 调试版（debug） | 接收器会注册，但 Android 8.0–12L 上抛异常 | `ContextCompat.RECEIVER_NOT_EXPORTED` 需要宿主无法声明的权限 |
+
+两者都要修，改导出级别并不能解决发行版的问题。
+
+### 7.3 修复
+
+`ApplicationHook.initHandler()`：把注册移出调试分支改为无条件执行，调试分支只保留仅供本地调试的 HTTP 服务。
+
+### 7.4 验证：release 产物的静态证据
+
+对 `assembleRelease` 产物（R8 已裁剪）检查 dex 字符串：
+
+| 检查项 | 结果 | 含义 |
+| --- | --- | --- |
+| 调试服务密码 `ET3vB^#td87sQqKaY*eMUJXP` | **缺失** | 证实 R8 确实把 `BuildConfig.DEBUG` 分支整段裁掉了 |
+| `BroadcastReceiver registered` | **存在** | 接收器注册已进入正式包 |
+| `registerDynamicReceiver` / `mRescueReceiver` / `恢复指令令牌不匹配` | **存在** | 本次拆分与令牌门槛均在正式包中 |
+
+由于旧实现里 `registerBroadcastReceiver` 的唯一调用点不可达，R8 必然把该方法一并剥离 ——
+「调试密码缺失 + 注册日志存在」这一对结果即构成修复前后的对照证据。
+另：`./gradlew :app:assembleRelease :app:testDebugUnitTest` 均 BUILD SUCCESSFUL。
+
+### 7.5 该设备的框架情况（供后续测试参考）
+
+| 项 | 现状 | 结论 |
+| --- | --- | --- |
+| 注入框架 | **EdXposed v0.4.6.2 (Riru)**，实测已注入支付宝 | 只实现**旧版 Xposed API** |
+| 已装同类模块 | `leo.xposed.sesameX`（芝麻糊） | 走 `de.robv.android.xposed.*`，故能被 EdXposed 加载；实测 `RpcBridge` 为 null 抛 NPE（设备上是 2020 年的支付宝 10.5.66，过旧） |
+| 本模块要求 | `META-INF/xposed/module.prop`：`minApiVersion=101`、`targetApiVersion=102` | **EdXposed 无法加载本模块**，须先换框架 |
+| Magisk / Riru | 20.4 / v21.3 | LSPosed 的 Riru 变体要求 Riru 26.1.7+ |
+| libxposed API 支持 | LSPosed **v1.9.2**（最后一个带 Riru 变体的发行版）**只到 API 100**；API 101 需 **v2.0.0+**（已移除 Riru），API 102 需 **v2.1.0+** | 只能走 **Zygisk** 路线 → 需 **Magisk ≥24** |
+
+**结论**：该设备要用于本模块实测，有两条路 ——
+
+1. **换框架（不碰支付宝）**：Magisk 升到 ≥24 并启用 Zygisk → 装 LSPosed v2.1.0+（Zygisk）或 Vector v2.2+，卸掉 EdXposed + Riru。这是与 EdXposed 同类的「框架层注入」方式，不改 APK、不改签名。
+2. **用现成 LSPatch 打补丁**：设备上已装的 LSPatch 1.2 其 core `canary-3106` 已是 **API 102**，无需升 Magisk；但需给支付宝打补丁（改签名），可用 root 先备份数据、装完再回灌。
+
+> 注意路径 2 的额外风险：设备上支付宝为 10.5.66（2020），已实测同类模块在其上 `RpcBridge` 为 null ——
+> 业务 hook 大概率无法工作。但**接收器注册**与业务 hook 无关，仍可用于验证本节修复。
