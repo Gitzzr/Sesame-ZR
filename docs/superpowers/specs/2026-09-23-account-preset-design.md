@@ -81,7 +81,14 @@
 
 ### 全量设置项表（摘要）
 
-完整清单在 `model/AccountPresetPolicy.kt` 的 `FIELDS` 中，共 279 行（含 16 个模块启用开关）。
+完整清单在 `model/AccountPresetPolicy.kt` 的 `FIELDS` 中，共 **302 行** ——
+16 个模块的总开关 + `ModelOrder` 所注册的全部 **286 个设置项**，其中 **80 行**为跨账号项。
+覆盖率有据可查：逐模型的「`getFields()` 实际注册字段」与「策略表覆盖字段」做过双向比对，
+`ModelOrder` 里的 16 个模型全部零缺口。
+
+> 唯一未纳入的是 `ManualTaskModel`（手动任务页的 6 个一次性触发开关）：
+> 它**不在 `ModelOrder` 中注册**，不进入 `ModelConfigMap`，因此不属于档位配置的范畴。
+
 下表只列跨账号项的分类与取值：
 
 | 模块 | 典型设置项 | 作用域 | 大号 | 小号 |

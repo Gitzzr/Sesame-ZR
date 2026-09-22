@@ -7,7 +7,7 @@
 
 | # | 任务 | 产出 |
 | --- | --- | --- |
-| 1 | 梳理全量设置项并完成资源风险分级 | 279 个已注册字段的 `SELF` / `CROSS_ACCOUNT` 分类 |
+| 1 | 梳理全量设置项并完成资源风险分级 | 302 行预设表（16 个模块总开关 + 286 个设置项），其中 80 行为跨账号 |
 | 2 | 实现纯策略 | `model/AccountPresetPolicy.kt` |
 | 3 | 实现应用器与落盘 | `model/AccountPreset.kt` |
 | 4 | 接入设置页入口 | `ui/AccountPresetMenu.kt` + `SettingsContent.kt` |
@@ -16,14 +16,22 @@
 
 ## 二、设置项梳理方法
 
-不靠人工记忆，用脚本从源码里把设置项**抽干**，避免遗漏：
+不靠人工记忆，用脚本从源码里把设置项**抽干**，并做**双向覆盖比对**，避免遗漏：
 
-1. `ModelField("<code>", "<label>", <default>` 正则扫描 `model/` 与 `task/` 下的全部 `.kt` / `.java`
-   → 得到 297 处声明（含少量重复出现在枚举 `nickNames` 附近的噪声）。
-2. 再做一次「括号配对」扫描，只取每个模型 `getFields()` 函数体内部的声明 → 得到 246 个**真正注册**到
-   UI 的字段；对 `BaseModel` / `AnswerAI` / `AntCooperate` / `AntFishPond` 这几个「先赋给成员变量、
-   `getFields()` 只做 `addField(var)`」的写法，回落到第一步的声明表补齐。
-3. 两份结果合并去重 → 279 个字段，即 `AccountPresetPolicy.FIELDS` 的行数（含 16 个模块 `enable`）。
+1. 正则扫 `ModelField("<code>", "<label>", <default>` 覆盖 `model/` 与 `task/` 下的全部 `.kt` / `.java`
+   → 得到 297 处声明（含少量噪声，例如同一 code 在枚举 `nickNames` 附近再次出现）。
+2. 再做一次「括号配对」扫描，只取每个模型 `getFields()` 函数体内部的声明
+   → 得到 246 个**真正注册**到 UI 的字段。
+3. 对「先赋给成员变量、`getFields()` 只做 `addField(var)`」的写法
+   （`BaseModel`、`AnswerAI`、`AntCooperate`、`AntFishPond`）回落到声明表补齐。
+4. 用脚本逐模型比对「注册字段」与「策略表覆盖字段」—— **16 个已注册模型零缺口**。
+   首轮比对抓到一处遗漏（`AntForest.robExpandCardTime`，1.1 倍能量卡使用时间），已补。
+
+最终 `AccountPresetPolicy.FIELDS` 共 **302 行** = 16 个模块总开关 + 286 个设置项，其中 **80 行**为跨账号。
+
+> 唯一未纳入的是 `ManualTaskModel`（手动任务页的 6 个一次性触发开关）：它**不在 `ModelOrder` 中注册**，
+> 不进入 `ModelConfigMap`，因此不属于档位配置的范畴。单测 `预设表覆盖的模型与 ModelOrder 注册的模型完全一致`
+> 会在「新增模型忘了登记」或「表里写了不存在的模型」时双向失败。
 
 风险分级判据（写进代码注释的规则）：
 
