@@ -590,11 +590,15 @@ class ApplicationHook {
             try {
                 if (init) destroyHandler()
 
-                // 调试模式初始化
+                // 广播接收器承载「手动任务 / 重启 / 恢复安全验证暂停」等指令，**并非调试专用**，
+                // 必须无条件注册。旧实现误把它放在下面的 DEBUG 分支里，导致 `assembleRelease`
+                // 打出的正式包里接收器从未注册，这些功能（含「跳过并恢复」自救入口）整体失效。
+                appContext?.let { registerBroadcastReceiver(it) }
+
+                // 调试模式初始化：仅供本地调试的 HTTP 服务
                 if (BuildConfig.DEBUG) {
                     try {
                         startIfNeeded(8080, "ET3vB^#td87sQqKaY*eMUJXP", processName, General.PACKAGE_NAME)
-                        registerBroadcastReceiver(appContext!!)
                     } catch (_: Throwable) { /* ignore */
                     }
                 }
