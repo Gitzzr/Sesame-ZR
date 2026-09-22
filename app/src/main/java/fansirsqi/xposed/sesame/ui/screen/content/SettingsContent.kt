@@ -22,6 +22,7 @@ import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.HideSource
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.SatelliteAlt
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,6 +38,7 @@ import androidx.core.content.edit
 import fansirsqi.xposed.sesame.BuildConfig
 import fansirsqi.xposed.sesame.SesameApplication.Companion.PREFERENCES_KEY
 import fansirsqi.xposed.sesame.entity.UserEntity
+import fansirsqi.xposed.sesame.ui.AccountPresetMenu
 import fansirsqi.xposed.sesame.ui.MainActivity
 import fansirsqi.xposed.sesame.ui.ManualTaskActivity
 import fansirsqi.xposed.sesame.ui.RpcDebugActivity
@@ -109,6 +111,15 @@ fun SettingsContent(
                     title = "扩展功能",
                     icon = Icons.Rounded.Extension,
                     onClick = { onEvent(MainActivity.MainUiEvent.OpenExtend) }
+                )
+            }
+
+            item {
+                SettingsItem(
+                    title = "账号档位（大号 / 小号）",
+                    subtitle = "一键切换两套配置方案，小号档位不会动大号任何资源",
+                    icon = Icons.Rounded.SwapHoriz,
+                    onClick = { AccountPresetMenu.show(context, userList) { } }
                 )
             }
 
