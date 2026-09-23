@@ -163,7 +163,7 @@ class AccountPresetPolicyTest {
         assertTrue(AccountPresetPolicy.isNeutralValue(emptySet<String>()))
         assertTrue(AccountPresetPolicy.isNeutralValue(emptyMap<String, Int>()))
         assertTrue(AccountPresetPolicy.isNeutralValue(""))
-        assertTrue(AccountPresetPolicy.isNeutralValue(AutoProtectAccounts))
+        assertTrue(AccountPresetPolicy.isNeutralValue(WriteMainAccountList))
 
         assertFalse(AccountPresetPolicy.isNeutralValue(true))
         assertFalse(AccountPresetPolicy.isNeutralValue(1))
