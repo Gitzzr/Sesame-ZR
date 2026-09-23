@@ -68,18 +68,30 @@ class AccountPresetGuardTest {
     }
 
     @Test
-    fun `小号档白名单制必须开开关与收窄名单成对`() {
+    fun `功能名单必须按好友勾选聚合后才写入`() {
         assertTrue(
-            "必须应用白名单开关",
-            sourceText.contains("AccountFriendListPolicy.ALT_WHITELIST_SWITCHES"),
+            "必须有「逐好友勾选 → 每项功能被谁勾选」的聚合步骤",
+            sourceText.contains("aggregateSelection(activeList, activeSelection)"),
         )
         assertTrue(
-            "必须把服务类名单收窄到大号名单",
-            sourceText.contains("AccountFriendListPolicy.altListsFilledWithMain()"),
+            "必须按档位方向筛掉不可选项（大号档禁用排除类）",
+            sourceText.contains("AccountFriendListPolicy.isSelectable(ref, !isMainTier)"),
         )
         assertTrue(
-            "未指定大号名单时不得开白名单（保守）",
-            sourceText.contains("tier == PresetTier.ALT && mainList.isNotEmpty()"),
+            "名单填了不等于生效：必须连带写入该项的门控开关",
+            sourceText.contains("for (sw in ref.gateSwitches)"),
+        )
+    }
+
+    @Test
+    fun `功能勾选必须随档位记录落盘以便复用`() {
+        assertTrue(
+            "写入时带上前后的勾选状态",
+            sourceText.contains("mainSelection, subSelection,"),
+        )
+        assertTrue(
+            "记录里要能按方向解析回来",
+            sourceText.contains("parseSelection(node.path(\"featureSelection\").path(\"main\"))"),
         )
     }
 

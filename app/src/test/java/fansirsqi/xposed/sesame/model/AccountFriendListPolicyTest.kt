@@ -34,7 +34,7 @@ class AccountFriendListPolicyTest {
     fun `分类表共 26 项且无重复`() {
         val lists = AccountFriendListPolicy.FRIEND_LISTS
         assertEquals("好友名单总数与预期不符", 26, lists.size)
-        assertEquals("存在重复登记", emptyList<String>(), lists.map { it.key }.groupBy { it }.filterValues { it.size > 1 }.keys.sorted())
+        assertEquals("存在重复登记", emptyList<String>(), lists.map { it.id }.groupBy { it }.filterValues { it.size > 1 }.keys.sorted())
         assertEquals(11, AccountFriendListPolicy.ofKind(FriendListKind.SERVICE).size)
         assertEquals(10, AccountFriendListPolicy.ofKind(FriendListKind.EXPLOIT).size)
         assertEquals(4, AccountFriendListPolicy.ofKind(FriendListKind.EXCLUSION).size)
@@ -45,7 +45,7 @@ class AccountFriendListPolicyTest {
     fun `每一项的字段 code 在主源码中都存在`() {
         val missing = AccountFriendListPolicy.FRIEND_LISTS
             .filter { ref -> mainSources.values.none { it.contains("\"${ref.fieldCode}\"") } }
-            .map { it.key }
+            .map { it.id }
         assertTrue("以下字段在主源码中找不到声明：$missing", missing.isEmpty())
     }
 
@@ -58,7 +58,7 @@ class AccountFriendListPolicyTest {
             val idx = hit.indexOf("\"${ref.fieldCode}\"")
             val window = hit.substring(idx, minOf(hit.length, idx + 600))
             !window.contains("AlipayUser")
-        }.map { it.key }
+        }.map { it.id }
         assertTrue("以下字段的候选集不是好友列表（AlipayUser）：$wrong", wrong.isEmpty())
     }
 
@@ -88,31 +88,6 @@ class AccountFriendListPolicyTest {
         )
     }
 
-    @Test
-    fun `小号档要填的名单其门控开关都会在档位里被打开`() {
-        val whitelistKeys = AccountFriendListPolicy.ALT_WHITELIST_SWITCHES
-            .filter { AccountPresetPolicy.isNeutralValue(it.value).not() }
-            .map { it.key }
-            .toSet()
-
-        val inert = AccountFriendListPolicy.altListsFilledWithMain()
-            .filter { it.gateField != null }
-            .filter { ref ->
-                val gate = "${ref.modelCode}.${ref.gateField}"
-                if (gate in whitelistKeys) {
-                    false
-                } else {
-                    // 或者该开关在小号档的静态取值本身就是「开启」
-                    val staticAlt = AccountPresetPolicy.FIELDS
-                        .firstOrNull { it.modelCode == ref.modelCode && it.fieldCode == ref.gateField }
-                        ?.altValue
-                    AccountPresetPolicy.isNeutralValue(staticAlt)
-                }
-            }
-            .map { "${it.key} 的门控 ${it.gateField} 在小号档不会开启" }
-
-        assertTrue("以下名单填了也不会生效：$inert", inert.isEmpty())
-    }
 
     @Test
     fun `小号档不得把非大号账号写进服务或索取名单`() {
@@ -167,41 +142,16 @@ class AccountFriendListPolicyTest {
         )
     }
 
-    @Test
-    fun `复活能量体系在小号档不参与名单填充`() {
-        val untouched = AccountFriendListPolicy.altListsUntouched().map { it.key }
-        assertTrue(
-            "复活能量相关名单属于独立体系，小号档不应填充：$untouched",
-            untouched.contains("AntForest.helpFriendCollectList") &&
-                untouched.contains("AntForest.alternativeAccountList"),
-        )
-        val filled = AccountFriendListPolicy.altListsFilledWithMain().map { it.key }
-        assertFalse(
-            "复活能量名单不得出现在填充列表里",
-            filled.any { it.contains("helpFriendCollect") || it.contains("alternativeAccount") },
-        )
-    }
 
-    @Test
-    fun `索取干扰类名单在小号档一律清空`() {
-        val cleared = AccountFriendListPolicy.altListsCleared().map { it.key }
-        assertTrue(cleared.contains("AntStall.stallTicketList"))
-        assertTrue(cleared.contains("AntStall.stallThrowManureList"))
-        assertTrue(cleared.contains("AntSports.originBossIdList"))
-        assertTrue(cleared.contains("AntFarm.hireAnimalList"))
-        // 索取类不得出现在填充列表里（哪怕是填大号）
-        val filled = AccountFriendListPolicy.altListsFilledWithMain().map { it.key }.toSet()
-        assertTrue("索取类名单不能出现在填充列表：${cleared.filter { it in filled }}", cleared.none { it in filled })
-    }
 
     @Test
     fun `选择计数型名单都给了正的默认次数`() {
         AccountFriendListPolicy.FRIEND_LISTS.filter { it.isCounted }.forEach { ref ->
             val count = ref.countDefault ?: 0
-            assertTrue("${ref.key} 的默认次数必须为正数，否则任务会直接跳过", count > 0)
+            assertTrue("${ref.id} 的默认次数必须为正数，否则任务会直接跳过", count > 0)
         }
         // 已知的三个选择计数型名单
-        val counted = AccountFriendListPolicy.FRIEND_LISTS.filter { it.isCounted }.map { it.key }.toSet()
+        val counted = AccountFriendListPolicy.FRIEND_LISTS.filter { it.isCounted }.map { it.id }.toSet()
         assertEquals(
             setOf(
                 "AntForest.waterFriendList",
@@ -210,5 +160,99 @@ class AccountFriendListPolicyTest {
             ),
             counted,
         )
+    }
+
+    // ================================================================ 功能清单与推荐规则
+
+    @Test
+    fun `每项功能都有面向用户的方向化文案`() {
+        val bad = AccountFriendListPolicy.FRIEND_LISTS
+            .filter { it.featureLabel.isBlank() || it.featureLabel == it.label }
+            .map { it.id }
+        assertTrue("以下功能缺少方向化文案：$bad", bad.isEmpty())
+        // 排除类必须读作「不……」，否则用户会以为勾上就是"去做"
+        val wrong = AccountFriendListPolicy.ofKind(FriendListKind.EXCLUSION)
+            .filterNot { it.featureLabel.startsWith("不") }
+            .map { it.id }
+        assertTrue("以下豁免项文案没有表达出「不做」的语义：$wrong", wrong.isEmpty())
+    }
+
+    @Test
+    fun `每项功能都登记了门控开关与主门控字段一致`() {
+        val bad = AccountFriendListPolicy.FRIEND_LISTS
+            .filter { it.gateField != null }
+            .filter { ref -> ref.gateSwitches.none { it.fieldCode == ref.gateField } }
+            .map { it.id }
+        assertTrue("以下功能的主门控字段没有出现在 gateSwitches 里：$bad", bad.isEmpty())
+    }
+
+    @Test
+    fun `大号名单的推荐项与既有白名单填充集一致`() {
+        // 向后兼容：默认推荐 = 原先白名单制实际填充的那 12 项
+        val expected = buildSet {
+            AccountFriendListPolicy.ofKind(FriendListKind.SERVICE)
+                .filter { it.effective }
+                .forEach { add(it.id) }
+            add("AntForest.dontCollectList")
+            add("AntFarm.dontSendFriendList")
+        }
+        assertEquals(expected, AccountFriendListPolicy.recommendedForMainList())
+        assertEquals(12, AccountFriendListPolicy.recommendedForMainList().size)
+    }
+
+    @Test
+    fun `大号名单不推荐索取干扰类与独立体系`() {
+        val recommended = AccountFriendListPolicy.recommendedForMainList()
+        val bad = AccountFriendListPolicy.FRIEND_LISTS
+            .filter { it.kind == FriendListKind.EXPLOIT || it.kind == FriendListKind.PROTECT }
+            .filter { it.id in recommended }
+            .map { it.id }
+        assertTrue("索取/干扰类与独立体系不应默认勾选：$bad", bad.isEmpty())
+    }
+
+    @Test
+    fun `小号名单只推荐帮 TA 复活能量`() {
+        assertEquals(
+            setOf("AntForest.alternativeAccountList"),
+            AccountFriendListPolicy.recommendedForSubList(),
+        )
+    }
+
+    @Test
+    fun `失效项不进入任何推荐集`() {
+        val ineffective = AccountFriendListPolicy.INEFFECTIVE.map { it.id }.toSet()
+        assertTrue("当前版本至少有一项失效（复活能量｜好友列表）", ineffective.isNotEmpty())
+        assertTrue(
+            "失效项不得出现在推荐集里",
+            AccountFriendListPolicy.recommendedForMainList().none { it in ineffective } &&
+                AccountFriendListPolicy.recommendedForSubList().none { it in ineffective },
+        )
+    }
+
+    @Test
+    fun `大号档禁用排除类功能`() {
+        // 大号要收小号的能量 → 「不收取 TA 的能量」这类豁免项对小号没有意义
+        val exclusion = AccountFriendListPolicy.ofKind(FriendListKind.EXCLUSION)
+        assertTrue(
+            "排除类在大号档必须不可选",
+            exclusion.none { AccountFriendListPolicy.isSelectable(it, forMainList = false) },
+        )
+        assertTrue(
+            "排除类在小号档可选",
+            exclusion.all { AccountFriendListPolicy.isSelectable(it, forMainList = true) },
+        )
+        assertTrue(
+            "服务类在大号档可选",
+            AccountFriendListPolicy.ofKind(FriendListKind.SERVICE)
+                .all { AccountFriendListPolicy.isSelectable(it, forMainList = false) },
+        )
+    }
+
+    @Test
+    fun `按 id 能取回功能`() {
+        AccountFriendListPolicy.FRIEND_LISTS.forEach { ref ->
+            assertEquals(ref, AccountFriendListPolicy.byId(ref.id))
+        }
+        assertEquals(null, AccountFriendListPolicy.byId("NotExist.field"))
     }
 }
