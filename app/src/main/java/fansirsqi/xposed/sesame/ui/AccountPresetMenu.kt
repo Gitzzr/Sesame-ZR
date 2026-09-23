@@ -163,7 +163,8 @@ object AccountPresetMenu {
     }
 
     /**
-     * 一级：好友列表。点行 = 切换是否列入名单；点「N 项」= 进入该账号的功能勾选。
+     * 一级：好友列表。点整行 = 进入该账号的功能勾选（没有"是否列入名单"这一层 ——
+     * 名单的成员就是勾了至少 1 项功能的好友）。
      */
     private fun showFriendDialog(
         context: Context,
