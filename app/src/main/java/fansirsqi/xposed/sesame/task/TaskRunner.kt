@@ -9,7 +9,9 @@ import fansirsqi.xposed.sesame.model.Model
 import fansirsqi.xposed.sesame.task.customTasks.ManualTask
 import fansirsqi.xposed.sesame.util.Log
 import fansirsqi.xposed.sesame.util.TimeUtil
+import fansirsqi.xposed.sesame.util.maps.UserMap
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -100,6 +102,7 @@ class CoroutineTaskRunner(allModels: List<Model>) {
             Log.printStackTrace(TAG, "任务流程异常", e)
         } finally {
             printExecutionSummary(startTime, System.currentTimeMillis())
+            recordStatistics(startTime)
             if (TaskRunnerPolicy.shouldScheduleNext(currentCoroutineContext().isActive) && !ApplicationHook.offline) {
                 scheduleNext()
             }
@@ -250,5 +253,27 @@ class CoroutineTaskRunner(allModels: List<Model>) {
             Log.record(TAG, "📅 下次: ${TimeUtil.getCommonDate(nextTime)}")
         }
         Log.record(TAG, "============================")
+    }
+
+    /**
+     * 把本次执行结果结构化落盘（statistics.json，按账号、按日累积）。
+     *
+     * 用 [NonCancellable] + [Dispatchers.IO] 保证：即便整轮任务被取消，
+     * 本次统计依然写盘，且不阻塞调用线程。
+     */
+    private suspend fun recordStatistics(startTime: Long) {
+        try {
+            val now = System.currentTimeMillis()
+            val run = RunStatRecord.from(runCounter.snapshot(), now - startTime)
+            val dayKey = TimeUtil.getDateStr2()
+            val userId = UserMap.currentUid
+            withContext(NonCancellable + Dispatchers.IO) {
+                TaskStatisticsRecorder.recordRun(userId, dayKey, run, now)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.printStackTrace(TAG, "统计落盘失败", e)
+        }
     }
 }
