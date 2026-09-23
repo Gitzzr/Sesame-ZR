@@ -130,6 +130,6 @@ Windows 下把 `./gradlew` 换成 `./gradlew.bat`。完整说明见 [`docs/devel
 
 - [ ] 走 [`docs/development.md`](docs/development.md) 里的回归清单
 - [ ] 用户可见的改动，已在 `CHANGELOG.md` **表格最上面**追加**一行**（`| 日期 | 模块 | 功能改动 |`，1~3 句 / ≤ 200 字 / 一个 PR 一行）—— 判定标准与写法见 [`docs/development.md` §4 · CHANGELOG 约定](docs/development.md)
-- [ ] 非平凡功能，已补 `docs/superpowers/specs/` 设计稿 + `docs/superpowers/plans/` 实施计划，并同步勾选状态
+- [ ] 非平凡功能，已补 `docs/superpowers/specs/` 设计稿 + `docs/superpowers/plans/` 实施计划，并同步勾选状态（**一个功能一对文档**，后续轮次在既有文档追加章节、不新开文件）
 - [ ] 新文件是 UTF-8 无 BOM
 - [ ] 若新增需要入库的 `.txt` / `.json`，记得 `git add -f`（`.gitignore` 有宽泛的 `*.txt`、`*.json` 规则）
