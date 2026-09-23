@@ -62,8 +62,8 @@ data class PresetField(
     fun valueFor(tier: PresetTier): Any? = if (tier == PresetTier.MAIN) mainValue else altValue
 }
 
-/** 「把本机其他已载入账号填进保护名单」的占位标记，由 [AccountPreset] 在运行时解析为真实 userId 集合 */
-object AutoProtectAccounts
+/** 「写入大号名单」的占位标记：由 [AccountPreset] 在运行时解析为 `BaseModel.mainAccountList` 的实际内容 */
+object WriteMainAccountList
 
 object AccountPresetPolicy {
 
@@ -75,8 +75,6 @@ object AccountPresetPolicy {
 
     /** 通用「关闭 / 未选中」选项值 */
     private const val NONE = 0
-
-    private const val EMPTY_STR = ""
 
     private val EMPTY_SET: Set<String> = emptySet()
     private val EMPTY_MAP: Map<String, Int> = emptyMap()
@@ -140,7 +138,7 @@ object AccountPresetPolicy {
      * 全量设置项表。
      *
      * 约定：
-     * - [FieldScope.CROSS_ACCOUNT] 的行，`altValue` 必须是中性值（false / 0 / 空集合 / 空 Map / 空串 / [AutoProtectAccounts]）；
+     * - [FieldScope.CROSS_ACCOUNT] 的行，`altValue` 必须是中性值（false / 0 / 空集合 / 空 Map / 空串 / [WriteMainAccountList]）；
      * - 名单类字段（SelectModelField / SelectAndCountModelField）在大号档位一律 [KEEP]，因为无法预知用户要给谁浇水、送谁道具；
      * - 调优类参数（间隔、次数、时间点）不参与档位切换，一律 [KEEP]，避免一键切换打乱用户手感。
      */
@@ -176,6 +174,9 @@ object AccountPresetPolicy {
                 self(BASE, "enableOnGoing", "开启状态栏禁删", KEEP, KEEP),
                 self(BASE, "sendHookData", "启用 Hook 数据转发", KEEP, KEEP),
                 self(BASE, "sendHookDataUrl", "Hook 数据转发地址", KEEP, KEEP),
+                // 账号关系名单：取值由用户在切换流程里当场选择，不走静态表，故两档都是「不覆盖」。
+                self(BASE, "mainAccountList", "大号名单（供各功能一键套用）", KEEP, KEEP),
+                self(BASE, "subAccountList", "小号名单（供各功能一键套用）", KEEP, KEEP),
             )
         )
 
@@ -192,9 +193,9 @@ object AccountPresetPolicy {
                 cross(FOREST, "collectGiftBox", "领取好友礼盒", ON, OFF),
                 cross(FOREST, "helpFriendCollectType", "复活能量", NONE, NONE),
                 // —— 跨账号：名单类，小号清空 ——
-                cross(FOREST, "dontCollectList", "不收能量名单", AutoProtectAccounts, AutoProtectAccounts, "两档都写入本机其他账号，形成双向保护"),
-                cross(FOREST, "alternativeAccountList", "小号列表（周一保护）", AutoProtectAccounts, AutoProtectAccounts, "两档都写入本机其他账号，形成双向保护"),
-                cross(FOREST, "helpFriendCollectList", "复活能量好友列表", KEEP, EMPTY_SET),
+                cross(FOREST, "dontCollectList", "不收能量名单", KEEP, WriteMainAccountList, "小号档写入「大号名单」，保证小号不偷大号；大号档不写此项（大号要收小号能量）"),
+                cross(FOREST, "alternativeAccountList", "小号列表（复活能量保护名单）", KEEP, EMPTY_SET, "复活能量体系的独立名单，小号档下该体系整体关闭，故清空不生效"),
+                cross(FOREST, "helpFriendCollectList", "复活能量好友列表", KEEP, EMPTY_SET, "同上：小号档不参与复活能量体系"),
                 cross(FOREST, "giveEnergyRainList", "赠送能量雨名单", KEEP, EMPTY_SET),
                 cross(FOREST, "whoYouWantToGiveTo", "赠送道具对象", KEEP, EMPTY_SET),
                 cross(FOREST, "giveProp", "赠送道具", OFF, OFF),
@@ -282,7 +283,9 @@ object AccountPresetPolicy {
                 cross(FARM, "family", "家庭", OFF, OFF),
                 cross(FARM, "familyOptions", "家庭选项", KEEP, EMPTY_SET),
                 cross(FARM, "notInviteList", "家庭好友分享排除列表", KEEP, EMPTY_SET),
-                cross(FARM, "giftFamilyDrawFragment", "家庭扭蛋碎片赠送用户", KEEP, EMPTY_STR),
+                // 注：AntFarm.giftFamilyDrawFragment 的 addField 在主源码里是注释状态（AntFarm.kt:613），
+                // 未注册进 ModelConfig，因此不登记到本表 —— 否则每次切换都会多出一条「跳过」噪声，
+                // 掩盖真正的字段缺失。同理未登记的还有 AntMember.annualReview（年度回顾已下线）。
                 // —— 纯本账号 ——
                 self(FARM, "recallAnimalType", "召回小鸡", NONE, NONE),
                 self(FARM, "feedAnimal", "自动喂小鸡", ON, ON),
@@ -432,7 +435,6 @@ object AccountPresetPolicy {
                 self(MEMBER, "merchantMoreTask", "商家服务积分任务", ON, ON),
                 self(MEMBER, "beanSignIn", "安心豆签到", ON, ON),
                 self(MEMBER, "beanExchangeBubbleBoost", "安心豆兑换时光加速器", OFF, OFF),
-                self(MEMBER, "annualReview", "年度回顾", ON, ON),
                 self(MEMBER, "CollectStickers", "领取贴纸", ON, ON),
             )
         )
@@ -555,7 +557,8 @@ object AccountPresetPolicy {
         is String -> value.isEmpty()
         is Collection<*> -> value.isEmpty()
         is Map<*, *> -> value.isEmpty()
-        AutoProtectAccounts -> true
+        // 小号档把「不收能量」等排除名单写成大号名单，正是隔离所要的取值
+        WriteMainAccountList -> true
         else -> false
     }
 

@@ -17,8 +17,10 @@ import java.io.File
  *
  * 关键点：
  * - 只覆盖 [AccountPresetPolicy.FIELDS] 里登记且当前版本确实存在的字段，其余设置一律不动；
- * - 「不收能量名单 / 小号列表 / 复活能量好友列表」会被写入**本机其他已载入账号**，
- *   让大小号互为保护名单，形成双向隔离（这是小号隔离档之外的第二道保险）；
+ * - 小号档采用**白名单制**：把「大号名单」写进服务类名单并打开其门控开关
+ *   （小号只服务大号），把「大号名单」写进排除类名单（不偷大号），
+ *   索取/干扰类一律清空 —— 规则见 [AccountFriendListPolicy]；
+ * - 大号档做反向清理：把「小号名单」从排除类名单里**移除**，因为大号要收小号的能量；
  * - 切换目标账号不是当前运行账号时，先快照内存配置，应用完再恢复，避免影响正在跑的账号。
  */
 object AccountPreset {
@@ -27,15 +29,14 @@ object AccountPreset {
     /** 档位记录文件名（与 customset.json 同级，按账号隔离） */
     private const val PRESET_FILE = "account_preset.json"
 
+    /** 好友列表文件名，与 `Files.getFriendIdMapFile` 保持一致 */
+    private const val FRIEND_FILE = "friend.json"
+
+    /** 账号配置文件，与 `Files.setConfigV2File` 保持一致 */
+    private const val CONFIG_FILE = "config_v2.json"
+
     /** 宿主重载配置的广播，与 UI 侧保持一致 */
     private const val RESTART_ACTION = "com.eg.android.AlipayGphone.sesame.restart"
-
-    /** 需要写入「其他账号」保护名单的字段 */
-    private val PROTECT_LIST_FIELDS = listOf(
-        "AntForest" to "dontCollectList",
-        "AntForest" to "alternativeAccountList",
-        "AntForest" to "helpFriendCollectList",
-    )
 
     /** 一次档位切换的结果，供 UI 展示 */
     data class ApplyResult(
@@ -43,7 +44,10 @@ object AccountPreset {
         val userId: String,
         val appliedCount: Int,
         val skipped: List<String>,
-        val protectedAccounts: List<String>,
+        /** 本次套用了哪些功能的好友名单（用于确认/回执） */
+        val filledLists: List<String>,
+        /** 本次从哪些排除名单里移除了小号 */
+        val purgedLists: List<String>,
         val success: Boolean,
         val message: String,
     )
@@ -72,13 +76,82 @@ object AccountPreset {
 
     private fun labelOf(uid: String): String = "${displayName(uid)}($uid)"
 
+    /**
+     * 好友列表条目。用于「选择要保护的账号」——大号与小号常常**不在同一台设备上**，
+     * 此时 [otherAccountIds] 拿不到对方 userId，只能靠好友列表来指定保护对象。
+     */
+    data class Friend(val userId: String, val name: String)
+
+    /**
+     * 直接读配置文件里「基础」模块的关系名单（大号名单 / 小号名单），**不改内存配置**。
+     *
+     * 用于下次打开切换流程时默认勾选上次的标记 —— 走 [Config.load] 会污染当前运行账号的内存配置，
+     * 只为了读一个列表不值得。
+     */
+    @JvmStatic
+    fun readStoredRelationList(userId: String, fieldCode: String): Set<String> {
+        if (userId.isBlank()) return emptySet()
+        return try {
+            val file = File(Files.getUserConfigDir(userId), CONFIG_FILE)
+            if (!file.exists()) return emptySet()
+            val json = Files.readFromFile(file)
+            if (json.isBlank()) return emptySet()
+            val node = JsonUtil.toNode(json) ?: return emptySet()
+            val arr = node.path("modelFieldsMap")
+                .path(AccountFriendListPolicy.MAIN_LIST_MODEL)
+                .path(fieldCode)
+                .path("value")
+            if (!arr.isArray) return emptySet()
+            arr.mapNotNull { it.asText(null) }.filter { it.isNotBlank() }.toSet()
+        } catch (t: Throwable) {
+            Log.printStackTrace(TAG, "读取关系名单失败", t)
+            emptySet()
+        }
+    }
+
+    /**
+     * 读取某账号的本地好友列表（`friend.json`）。
+     *
+     * 直接读文件而不是走 `AlipayUser.getList()`：后者的数据来自内存里的 `UserMap`，
+     * 而本功能的入口在模块自己的进程，那里并不保证好友映射已加载。
+     *
+     * @return 按名称排序的好友列表；读不到时返回空列表（调用方需容忍）
+     */
+    @JvmStatic
+    fun readFriendList(userId: String): List<Friend> {
+        if (userId.isBlank()) return emptyList()
+        return try {
+            val file = File(Files.getUserConfigDir(userId), FRIEND_FILE)
+            if (!file.exists()) return emptyList()
+            val json = Files.readFromFile(file)
+            if (json.isBlank()) return emptyList()
+            val node = JsonUtil.toNode(json) ?: return emptyList()
+            val result = mutableListOf<Friend>()
+            val it = node.fields()
+            while (it.hasNext()) {
+                val (id, value) = it.next()
+                if (id == userId) continue // 跳过自己
+                val name = value.path("showName").asText("")
+                    .ifBlank { value.path("nickName").asText("") }
+                    .ifBlank { id }
+                result += Friend(id, name)
+            }
+            result.sortBy { it.name }
+            result
+        } catch (t: Throwable) {
+            Log.printStackTrace(TAG, "读取好友列表失败", t)
+            emptyList()
+        }
+    }
+
     // ------------------------------------------------------------------ 切换
 
     /**
      * 把 [tier] 档位应用到 [targetUid]。
      *
-     * @param context              用于发送宿主重载广播；为空时只落盘不广播
-     * @param protectOtherAccounts 是否把本机其他账号写入「不收能量 / 小号列表 / 复活能量」保护名单
+     * @param context  用于发送宿主重载广播；为空时只落盘不广播
+     * @param mainList 大号名单（好友 userId）。小号档据此收窄各功能名单；为空表示未指定。
+     * @param subList  小号名单（好友 userId）。大号档据此清理排除名单；为空表示未指定。
      */
     @JvmStatic
     @Synchronized
@@ -86,10 +159,11 @@ object AccountPreset {
         tier: PresetTier,
         targetUid: String,
         context: Context? = null,
-        protectOtherAccounts: Boolean = true,
+        mainList: Set<String> = emptySet(),
+        subList: Set<String> = emptySet(),
     ): ApplyResult {
         if (targetUid.isBlank()) {
-            return ApplyResult(tier, targetUid, 0, emptyList(), emptyList(), false, "无效的账号 ID")
+            return ApplyResult(tier, targetUid, 0, emptyList(), emptyList(), emptyList(), false, "无效的账号 ID")
         }
 
         val activeUid = UserMap.currentUid
@@ -97,70 +171,115 @@ object AccountPreset {
         val snapshot = if (needRestore) Config.toSaveStr() else null
 
         val skipped = mutableListOf<String>()
+        val filledLists = mutableListOf<String>()
+        val purgedLists = mutableListOf<String>()
         var appliedCount = 0
-        val protectSet: Set<String> =
-            if (protectOtherAccounts) otherAccountIds(targetUid).toSet() else emptySet()
-        // 本机只检测到目标账号自己时，没有可保护的账号 —— 此时**不动**用户手工配置的名单，
-        // 而不是把它清空。
-        val writeProtectList = protectOtherAccounts && protectSet.isNotEmpty()
-        val protectedLabels = protectSet.map { labelOf(it) }
 
         try {
+            // 0. 模型注册表必须先就绪，否则下面的 load/save 都是有害操作（见函数注释）
+            ensureModelRegistry()
+            if (Model.getModelConfigMap().isEmpty()) {
+                val msg = "模型注册表不可用，已中止且未写入任何配置"
+                Log.error(TAG, msg)
+                return ApplyResult(tier, targetUid, 0, skipped, filledLists, purgedLists, false, msg)
+            }
+
             // 1. 载入目标账号配置（会把字段值推进 ModelConfig）
             Config.load(targetUid)
             val modelConfigMap = Model.getModelConfigMap()
 
-            // 2. 逐项写入档位值
-            for (field in AccountPresetPolicy.overridesFor(tier)) {
-                val fieldName = "${field.modelCode}.${field.fieldCode}"
-                val modelConfig = modelConfigMap[field.modelCode]
-                if (modelConfig == null) {
-                    skipped += fieldName
+            fun fieldOf(modelCode: String, fieldCode: String): ModelField<*>? =
+                modelConfigMap[modelCode]?.getModelField(fieldCode)
+
+            /** 写入单个字段；返回是否成功（字段不存在则记入 skipped） */
+            fun write(modelCode: String, fieldCode: String, value: Any?): Boolean {
+                val f = fieldOf(modelCode, fieldCode)
+                if (f == null) {
+                    skipped += "$modelCode.$fieldCode"
+                    return false
+                }
+                f.setObjectValue(value)
+                return true
+            }
+
+            // 2. 静态档位表（开关类 / 固定取值）
+            for (row in AccountPresetPolicy.overridesFor(tier)) {
+                val raw = row.valueFor(tier)
+                if (raw === WriteMainAccountList) {
+                    // 由「大号名单」驱动：未指定大号就保持账号现状
+                    if (mainList.isNotEmpty()) {
+                        if (write(row.modelCode, row.fieldCode, mainList)) appliedCount++
+                    }
                     continue
                 }
-                val modelField = modelConfig.getModelField(field.fieldCode)
-                if (modelField == null) {
-                    skipped += fieldName
-                    continue
+                if (write(row.modelCode, row.fieldCode, raw)) appliedCount++
+            }
+
+            // 3. 关系名单本身落盘，供下次复用
+            write(AccountFriendListPolicy.MAIN_LIST_MODEL, AccountFriendListPolicy.MAIN_LIST_FIELD, mainList)
+            write(AccountFriendListPolicy.SUB_LIST_MODEL, AccountFriendListPolicy.SUB_LIST_FIELD, subList)
+
+            // 4. 小号档：白名单制 —— 开开关 + 把各功能名单收窄到「大号名单」
+            if (tier == PresetTier.ALT && mainList.isNotEmpty()) {
+                for (sw in AccountFriendListPolicy.ALT_WHITELIST_SWITCHES) {
+                    if (write(sw.modelCode, sw.fieldCode, sw.value)) appliedCount++
                 }
-                val raw = field.valueFor(tier)
-                if (raw === AutoProtectAccounts) {
-                    if (!writeProtectList) {
-                        // 没有可保护的账号，或用户选择不动名单：保持账号现状
+                for (ref in AccountFriendListPolicy.altListsFilledWithMain()) {
+                    val value: Any = if (ref.isCounted) {
+                        mainList.associateWith { ref.countDefault ?: 1 }
+                    } else {
+                        mainList
+                    }
+                    if (write(ref.modelCode, ref.fieldCode, value)) {
+                        appliedCount++
+                        filledLists += ref.key
+                    }
+                }
+                for (ref in AccountFriendListPolicy.altListsCleared()) {
+                    val value: Any = ref.countDefault?.let { emptyMap<String, Int>() } ?: emptySet<String>()
+                    if (write(ref.modelCode, ref.fieldCode, value)) {
+                        appliedCount++
+                        filledLists += "${ref.key}(清空)"
+                    }
+                }
+            }
+
+            // 5. 大号档：把小号从排除类名单里移除 —— 大号要收小号的能量
+            if (tier == PresetTier.MAIN && subList.isNotEmpty()) {
+                for (ref in AccountFriendListPolicy.mainExclusionListsToPurge()) {
+                    val f = fieldOf(ref.modelCode, ref.fieldCode) ?: run {
+                        skipped += ref.key
                         continue
                     }
-                    modelField.setObjectValue(protectSet)
-                } else {
-                    modelField.setObjectValue(raw)
-                }
-                appliedCount++
-            }
-
-            // 3. 名单类字段兜底：确认页勾选了「保护其他账号」时，三份名单统一写入同一集合
-            if (writeProtectList) {
-                for ((modelCode, fieldCode) in PROTECT_LIST_FIELDS) {
-                    val modelField = modelConfigMap[modelCode]?.getModelField(fieldCode) ?: continue
-                    modelField.setObjectValue(protectSet)
+                    @Suppress("UNCHECKED_CAST")
+                    val current = (f.value as? Set<String>) ?: continue
+                    val remain = current - subList
+                    if (remain.size == current.size) continue
+                    f.setObjectValue(remain)
+                    appliedCount++
+                    purgedLists += ref.key
                 }
             }
 
-            // 4. 落盘 + 通知宿主重载
+            // 6. 落盘 + 通知宿主重载
             val saved = Config.save(targetUid, true)
             if (saved) {
-                writeRecord(targetUid, tier, appliedCount, protectSet.toList())
+                writeRecord(targetUid, tier, appliedCount, mainList.toList())
                 broadcastRestart(context, targetUid)
             }
-            val message = buildMessage(tier, targetUid, appliedCount, skipped.size, protectedLabels, saved)
+            val message = buildMessage(tier, targetUid, appliedCount, skipped, filledLists, purgedLists, saved)
             Log.record(TAG, message)
-            return ApplyResult(tier, targetUid, appliedCount, skipped, protectedLabels, saved, message)
+            return ApplyResult(
+                tier, targetUid, appliedCount, skipped, filledLists, purgedLists, saved, message,
+            )
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, "应用账号档位失败", t)
             return ApplyResult(
-                tier, targetUid, appliedCount, skipped, protectedLabels, false,
+                tier, targetUid, appliedCount, skipped, filledLists, purgedLists, false,
                 "应用失败：${t.message ?: t.javaClass.simpleName}",
             )
         } finally {
-            // 5. 恢复当前运行账号的内存配置
+            // 7. 恢复当前运行账号的内存配置
             if (snapshot != null) {
                 restoreSnapshot(snapshot)
             }
@@ -171,8 +290,9 @@ object AccountPreset {
         tier: PresetTier,
         targetUid: String,
         appliedCount: Int,
-        skippedCount: Int,
-        protectedLabels: List<String>,
+        skipped: List<String>,
+        filledLists: List<String>,
+        purgedLists: List<String>,
         saved: Boolean,
     ): String {
         val head = if (saved) {
@@ -181,10 +301,9 @@ object AccountPreset {
             "【${tier.label}】档位写入失败"
         }
         val parts = mutableListOf(head, "覆盖 $appliedCount 项设置")
-        if (skippedCount > 0) parts += "跳过 $skippedCount 项（当前版本无此设置）"
-        if (protectedLabels.isNotEmpty()) {
-            parts += "保护名单 ${protectedLabels.size} 个账号：${protectedLabels.joinToString("、")}"
-        }
+        if (filledLists.isNotEmpty()) parts += "套用好友名单 ${filledLists.size} 处"
+        if (purgedLists.isNotEmpty()) parts += "把小号移出排除名单 ${purgedLists.size} 处"
+        if (skipped.isNotEmpty()) parts += "跳过 ${skipped.size} 项（当前版本无此设置）"
         return parts.joinToString("；")
     }
 
@@ -207,6 +326,33 @@ object AccountPreset {
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, "发送重载广播失败", t)
         }
+    }
+
+    // ------------------------------------------------------------------ 注册表就绪
+
+    /**
+     * 确保 [Model] 的注册表已就绪。
+     *
+     * 本功能的入口在**主界面**（`MainActivity` → `SettingsContent`）的设置页里，而
+     * `Model.initAllModel()` 只被 `ApplicationHook`（支付宝进程）与三个设置 Activity
+     * （`SettingActivity` / `WebSettingsActivity` / `ManualTaskActivity`）调用过，
+     * 模块自己的进程从主界面进来时注册表是空的。若在这时直接 `Config.load` / `Config.save`：
+     *
+     * - 轻则字段一条都写不进去（`getModelField` 全部返回 null）；
+     * - **重则 `Config.setModelFieldsMap` 拿到空注册表，`modelFieldsMap` 变成空 Map，
+     *   `Config.save` 会把空配置覆盖到账号的 `config_v2.json` 上，等于清空用户配置。**
+     *
+     * 因此写入前必须先按设置页的惯例初始化一次；初始化失败则中止，绝不落盘。
+     */
+    private fun ensureModelRegistry() {
+        if (Model.getModelConfigMap().isNotEmpty()) return
+        Log.record(TAG, "模型注册表为空，按设置页惯例先执行 Model.initAllModel()")
+        try {
+            Model.initAllModel()
+        } catch (t: Throwable) {
+            Log.printStackTrace(TAG, "初始化模型注册表失败", t)
+        }
+        Log.record(TAG, "模型注册表就绪：${Model.getModelConfigMap().size} 个模型")
     }
 
     // ------------------------------------------------------------------ 记录读写
