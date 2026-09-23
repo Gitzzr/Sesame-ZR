@@ -7,7 +7,7 @@
 
 | # | 任务 | 产出 |
 | --- | --- | --- |
-| 1 | 梳理全量设置项并完成资源风险分级 | 302 行预设表（16 个模块总开关 + 286 个设置项），其中 80 行为跨账号 |
+| 1 | 梳理全量设置项并完成资源风险分级 | 300 行预设表（16 个模块总开关 + 284 个设置项），其中 79 行为跨账号 |
 | 2 | 实现纯策略 | `model/AccountPresetPolicy.kt` |
 | 3 | 实现应用器与落盘 | `model/AccountPreset.kt` |
 | 4 | 接入设置页入口 | `ui/AccountPresetMenu.kt` + `SettingsContent.kt` |
@@ -27,7 +27,10 @@
 4. 用脚本逐模型比对「注册字段」与「策略表覆盖字段」—— **16 个已注册模型零缺口**。
    首轮比对抓到一处遗漏（`AntForest.robExpandCardTime`，1.1 倍能量卡使用时间），已补。
 
-最终 `AccountPresetPolicy.FIELDS` 共 **302 行** = 16 个模块总开关 + 286 个设置项，其中 **80 行**为跨账号。
+最终 `AccountPresetPolicy.FIELDS` 共 **300 行** = 16 个模块总开关 + 284 个设置项，其中 **79 行**为跨账号。
+
+> 方案 A 删掉 `mainAccountList` / `subAccountList` 两行后，由 302 行 / 286 项 / 80 行跨账号
+> 变为 300 行 / 284 项 / 79 行跨账号（见 `2026-09-23-friend-list-preset.md` 的实施记录）。
 
 > 唯一未纳入的是 `ManualTaskModel`（手动任务页的 6 个一次性触发开关）：它**不在 `ModelOrder` 中注册**，
 > 不进入 `ModelConfigMap`，因此不属于档位配置的范畴。单测 `预设表覆盖的模型与 ModelOrder 注册的模型完全一致`

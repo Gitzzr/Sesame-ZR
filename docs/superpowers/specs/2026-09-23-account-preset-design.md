@@ -81,8 +81,11 @@
 
 ### 全量设置项表（摘要）
 
-完整清单在 `model/AccountPresetPolicy.kt` 的 `FIELDS` 中，共 **302 行** ——
-16 个模块的总开关 + `ModelOrder` 所注册的全部 **286 个设置项**，其中 **80 行**为跨账号项。
+完整清单在 `model/AccountPresetPolicy.kt` 的 `FIELDS` 中，共 **300 行** ——
+16 个模块的总开关 + `ModelOrder` 所注册的 **284 个设置项**，其中 **79 行**为跨账号项。
+
+> 方案 A 删除了 `mainAccountList` / `subAccountList` 两个成员名单设置项，规模由 302 行 / 286 项 / 80 行跨账号
+> 降为 300 行 / 284 项 / 79 行跨账号（见 `plans/2026-09-23-friend-list-preset.md`）。
 覆盖率有据可查：逐模型的「`getFields()` 实际注册字段」与「策略表覆盖字段」做过双向比对，
 `ModelOrder` 里的 16 个模型全部零缺口。
 
