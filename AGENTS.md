@@ -124,12 +124,12 @@ Windows 下把 `./gradlew` 换成 `./gradlew.bat`。完整说明见 [`docs/devel
 | [`docs/development.md`](docs/development.md) | 开发方式、命令、回归清单、常见故障 | docs/ |
 | [`docs/component-api.md`](docs/component-api.md) | 组件与对外 API：Compose 组件、Web JS 合同、HTTP 接口、ModelField | docs/ |
 | [`CODEBUDDY.md`](CODEBUDDY.md) | 给 CodeBuddy Code 的精简版仓库导览 | 根目录 |
-| [`CHANGELOG.md`](CHANGELOG.md) | 用户可见改动的日期表 | 根目录 |
+| [`CHANGELOG.md`](CHANGELOG.md) | 用户可见改动的日期表（写法见 `docs/development.md` §4） | 根目录 |
 
 ## 交付前自查
 
 - [ ] 走 [`docs/development.md`](docs/development.md) 里的回归清单
-- [ ] 用户可见的改动，已在 `CHANGELOG.md` 表格追加**一行**（`| 日期 | 模块 | 功能改动 |`）—— **一个 PR 一行，不是每个提交一行**，写在整个 PR 收尾时；1~3 句、200 字以内，只写用户能感知到的变化，实现细节放 `docs/superpowers/`（时机与粒度见 [`docs/development.md` §4](docs/development.md)）
+- [ ] 用户可见的改动，已在 `CHANGELOG.md` **表格最上面**追加**一行**（`| 日期 | 模块 | 功能改动 |`，1~3 句 / ≤ 200 字 / 一个 PR 一行）—— 判定标准与写法见 [`docs/development.md` §4 · CHANGELOG 约定](docs/development.md)
 - [ ] 非平凡功能，已补 `docs/superpowers/specs/` 设计稿 + `docs/superpowers/plans/` 实施计划，并同步勾选状态
 - [ ] 新文件是 UTF-8 无 BOM
 - [ ] 若新增需要入库的 `.txt` / `.json`，记得 `git add -f`（`.gitignore` 有宽泛的 `*.txt`、`*.json` 规则）
