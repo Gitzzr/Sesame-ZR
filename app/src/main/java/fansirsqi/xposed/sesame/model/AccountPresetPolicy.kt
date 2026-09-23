@@ -20,8 +20,8 @@ enum class PresetTier(val code: String, val label: String, val summary: String) 
     /** 主力号：全功能档，开启各模块的收益与进度类能力 */
     MAIN("main", "大号", "主力号全功能档：开启各模块的收益与进度类能力"),
 
-    /** 小号：隔离档，关闭全部跨账号功能，只保留纯本账号操作 */
-    ALT("alt", "小号", "小号隔离档：关闭全部跨账号功能，只保留纯本账号操作，不会动大号任何资源");
+    /** 小号：隔离档，跨账号功能只对「大号名单」开放 */
+    ALT("alt", "小号", "小号隔离档：跨账号功能只对「大号名单」开放，不会动其他人");
 
     companion object {
         fun fromCode(code: String?): PresetTier? = entries.firstOrNull { it.code == code }
@@ -175,8 +175,8 @@ object AccountPresetPolicy {
                 self(BASE, "sendHookData", "启用 Hook 数据转发", KEEP, KEEP),
                 self(BASE, "sendHookDataUrl", "Hook 数据转发地址", KEEP, KEEP),
                 // 账号关系名单：取值由用户在切换流程里当场选择，不走静态表，故两档都是「不覆盖」。
-                self(BASE, "mainAccountList", "大号名单（供各功能一键套用）", KEEP, KEEP),
-                self(BASE, "subAccountList", "小号名单（供各功能一键套用）", KEEP, KEEP),
+                self(BASE, "mainAccountList", "大号名单（供各功能批量启用）", KEEP, KEEP),
+                self(BASE, "subAccountList", "小号名单（供各功能批量启用）", KEEP, KEEP),
             )
         )
 

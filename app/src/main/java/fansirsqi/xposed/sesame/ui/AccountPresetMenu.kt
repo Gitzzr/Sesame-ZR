@@ -219,19 +219,29 @@ object AccountPresetMenu {
                 adapter.notifyDataSetChanged()
             }
         }
-        // 裸 ListView 放进 AlertDialog 会因 wrap_content 塌成 0 高度，套一层固定高度的容器
-        val height = (context.resources.displayMetrics.heightPixels * 0.55f).toInt()
-        val holder = android.widget.FrameLayout(context).apply {
+        // 裸 ListView 放进 AlertDialog 会因 wrap_content 塌成 0 高度：
+        // 套一层纵向容器，里面放「说明文字 + 固定高度的列表」。
+        val height = (context.resources.displayMetrics.heightPixels * 0.5f).toInt()
+        val pad = (16 * context.resources.displayMetrics.density).toInt()
+        val holder = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, 0, pad, 0)
+            addView(TextView(context).apply {
+                text = explainText(label)
+                textSize = 13f
+                setTextColor(0xFF888888.toInt())
+                setPadding(0, 0, 0, pad)
+            })
             addView(
                 listView,
-                android.widget.FrameLayout.LayoutParams(
+                LinearLayout.LayoutParams(
                     android.view.ViewGroup.LayoutParams.MATCH_PARENT, height,
                 ),
             )
         }
 
         val dialog = AlertDialog.Builder(context)
-            .setTitle("$label：共 ${friends.size} 位好友")
+            .setTitle("批量启用功能 · $label（共 ${friends.size} 位好友）")
             .setView(holder)
             .setPositiveButton("下一步") { _, _ ->
                 showConfirm(
@@ -301,7 +311,7 @@ object AccountPresetMenu {
             // 只读，避免在渲染时为每个好友创建空条目
             val count = state.selection(isMainList)[friend.userId]?.size ?: 0
             row.addView(TextView(ctx).apply {
-                text = if (friend.userId in members) "已启用 $count 项  ▸" else "未列入  ▸"
+                text = if (friend.userId in members) "已启用 $count 项  ▸" else "未启用  ▸"
                 textSize = 13f
                 setPadding(dp(8), dp(8), dp(4), dp(8))
                 isClickable = true
@@ -340,11 +350,18 @@ object AccountPresetMenu {
             setPadding(dp(16), dp(8), dp(16), dp(8))
         }
 
+        container.addView(TextView(context).apply {
+            text = featureExplainText(friend.name)
+            textSize = 13f
+            setTextColor(0xFF888888.toInt())
+            setPadding(0, 0, 0, dp(4))
+        })
+
         val groups = listOf(
-            FriendListKind.SERVICE to "服务 TA（消耗自己、利于对方）",
-            FriendListKind.EXPLOIT to "对 TA 索取 / 干扰（损人利己）",
-            FriendListKind.EXCLUSION to "TA 的豁免项（填人 = 不做该动作）",
-            FriendListKind.PROTECT to "独立体系",
+            FriendListKind.SERVICE to "服务 TA —— 消耗自己、利于对方",
+            FriendListKind.EXPLOIT to "对 TA 索取 / 干扰 —— 损人利己",
+            FriendListKind.EXCLUSION to "TA 的豁免项 —— 勾上表示「不对 TA 做这件事」",
+            FriendListKind.PROTECT to "独立体系 —— 复活能量保护名单，与上面互不影响",
         )
         for ((kind, title) in groups) {
             val items = AccountFriendListPolicy.ofKind(kind)
@@ -375,7 +392,7 @@ object AccountPresetMenu {
         val scroll = ScrollView(context).apply { addView(container) }
 
         val dialog = AlertDialog.Builder(context)
-            .setTitle("${friend.name}：选择要启用的功能")
+            .setTitle("批量启用功能 · ${friend.name}")
             .setView(scroll)
             .setPositiveButton("确定") { _, _ ->
                 checked.clear()
@@ -398,14 +415,35 @@ object AccountPresetMenu {
         dialog.show()
     }
 
+    /**
+     * 单个功能项的文案。
+     *
+     * 刻意**不写**「（每日 N 次）」这类参数描述 —— 本页只决定"启用哪些功能"，
+     * 参数的默认值在 [featureExplainText] 里统一交代，避免让人以为是在这里配参数。
+     */
     private fun buildFeatureText(ref: FriendListRef, isMainList: Boolean): String {
         val suffix = when {
             !AccountFriendListPolicy.isSelectable(ref, isMainList) -> "（大号要收小号能量，不可选）"
             !ref.effective -> "（当前版本不生效）"
-            ref.isCounted -> "（每日 ${ref.countDefault} 次）"
             else -> ""
         }
         return ref.featureLabel + suffix
+    }
+
+    /** 一级页的说明：讲清"只批量启用、不配参数" */
+    private fun explainText(listLabel: String): String = buildString {
+        append("勾选账号 = 把它列入这份$listLabel；点右侧「N 项」为该账号选择要启用哪些功能。\n")
+        append("这里只负责「批量启用功能」，不涉及具体参数 —— 参数仍在各模块的账号配置里设置。")
+    }
+
+    /** 二级页的说明：把"批量启用"与"具体参数配置"的边界写清楚 */
+    private fun featureExplainText(friendName: String): String = buildString {
+        append("勾选 = 把「$friendName」加入该功能的「好友列表」，并打开它所需的开关；")
+        append("不勾则该功能保持账号当前配置，不做任何改动。\n\n")
+        append("本页只决定「启用哪些功能」，不配置参数 —— 例如浇水的克数、各功能的执行时间等，")
+        append("仍在「蚂蚁森林 / 小鸡庄园 / …」的账号配置里单独修改。\n\n")
+        append("浇水 / 帮喂小鸡 / 送麦子 是「选择 + 计数」型名单：勾选后会带一个默认次数 1，")
+        append("次数同样可在账号配置里调整。")
     }
 
     // ================================================================== 确认
@@ -475,14 +513,15 @@ object AccountPresetMenu {
         val sb = StringBuilder()
         sb.append("账号：").append(account.showName).append("（").append(account.uid).append("）\n")
         sb.append("当前：").append(AccountPreset.tierSummary(account.uid)).append("\n\n")
-        sb.append("$activeLabel：").append(activeList.size).append(" 个账号")
         if (activeList.isEmpty()) {
-            sb.append("（未指定 → 不改动任何功能名单）\n\n")
+            sb.append("$activeLabel：未指定账号 → 不改动任何功能名单，也不打开任何开关\n\n")
         } else {
-            sb.append("，共启用 ").append(enabled.size).append(" 项功能：\n")
+            sb.append("将对「$activeLabel」的 ").append(activeList.size)
+                .append(" 个账号批量启用 ").append(enabled.size).append(" 项功能\n")
+            sb.append("（只写入下列好友名单并打开对应开关，不改具体参数）\n")
             enabled.entries.take(8).forEach { (fid, uids) ->
                 val ref = AccountFriendListPolicy.byId(fid) ?: return@forEach
-                sb.append("· ").append(ref.featureLabel)
+                sb.append("· ").append(ref.label)
                     .append("（").append(uids.size).append(" 个账号）\n")
             }
             if (enabled.size > 8) sb.append("· …另有 ").append(enabled.size - 8).append(" 项\n")
@@ -499,7 +538,7 @@ object AccountPresetMenu {
                 } else {
                     sb.append("· 把小号（").append(subList.size).append(" 个）从「不收能量」等 ")
                         .append(AccountFriendListPolicy.exclusionLists().size)
-                        .append(" 个排除名单里**移除**\n")
+                        .append(" 个排除名单里移除\n")
                     sb.append("  ⚠️ 这是刻意的：大号需要收取小号的能量\n")
                 }
             }

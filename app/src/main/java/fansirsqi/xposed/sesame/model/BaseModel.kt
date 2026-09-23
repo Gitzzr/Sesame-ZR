@@ -185,7 +185,7 @@ class BaseModel : Model() {
         @Getter
         val mainAccountList: SelectModelField = SelectModelField(
             "mainAccountList",
-            "大号名单 | 供各功能一键套用",
+            "大号名单 | 供各功能批量启用",
             LinkedHashSet<String>(),
             AlipayUser::getList
         )
@@ -199,7 +199,7 @@ class BaseModel : Model() {
         @Getter
         val subAccountList: SelectModelField = SelectModelField(
             "subAccountList",
-            "小号名单 | 供各功能一键套用",
+            "小号名单 | 供各功能批量启用",
             LinkedHashSet<String>(),
             AlipayUser::getList
         )

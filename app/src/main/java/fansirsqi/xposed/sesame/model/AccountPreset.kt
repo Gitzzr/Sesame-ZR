@@ -316,7 +316,7 @@ object AccountPreset {
             "【${tier.label}】档位写入失败"
         }
         val parts = mutableListOf(head, "覆盖 $appliedCount 项设置")
-        if (filledLists.isNotEmpty()) parts += "套用好友名单 ${filledLists.size} 处"
+        if (filledLists.isNotEmpty()) parts += "批量启用 ${filledLists.size} 项功能"
         if (purgedLists.isNotEmpty()) parts += "把小号移出排除名单 ${purgedLists.size} 处"
         if (skipped.isNotEmpty()) parts += "跳过 ${skipped.size} 项（当前版本无此设置）"
         return parts.joinToString("；")
