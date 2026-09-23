@@ -56,14 +56,14 @@ class AccountPresetGuardTest {
     }
 
     @Test
-    fun `大号档必须把小号从排除名单里移除`() {
+    fun `大号档必须把本次选中的好友从排除名单里移除`() {
         assertTrue(
-            "必须存在「当前排除名单 - 小号名单」的清理逻辑",
-            sourceText.contains("val remain = current - subList"),
+            "必须存在「当前排除名单 - 本次选中的好友」的清理逻辑",
+            sourceText.contains("val remain = current - friends"),
         )
         assertTrue(
-            "只有指定了小号名单才清理",
-            sourceText.contains("tier == PresetTier.MAIN && subList.isNotEmpty()"),
+            "只有本次确实选了账号才清理",
+            sourceText.contains("tier == PresetTier.MAIN && friends.isNotEmpty()"),
         )
     }
 
@@ -71,7 +71,7 @@ class AccountPresetGuardTest {
     fun `功能名单必须按好友勾选聚合后才写入`() {
         assertTrue(
             "必须有「逐好友勾选 → 每项功能被谁勾选」的聚合步骤",
-            sourceText.contains("aggregateSelection(activeList, activeSelection)"),
+            sourceText.contains("aggregateSelection(selection)"),
         )
         assertTrue(
             "必须按档位方向筛掉不可选项（大号档禁用排除类）",
@@ -86,13 +86,35 @@ class AccountPresetGuardTest {
     @Test
     fun `功能勾选必须随档位记录落盘以便复用`() {
         assertTrue(
-            "写入时带上前后的勾选状态",
-            sourceText.contains("mainSelection, subSelection,"),
+            "写入时带上本次的勾选状态",
+            sourceText.contains("writeRecord(targetUid, tier, appliedCount, selection)"),
         )
         assertTrue(
-            "记录里要能按方向解析回来",
-            sourceText.contains("parseSelection(node.path(\"featureSelection\").path(\"main\"))"),
+            "记录里要能按档位解析回来",
+            sourceText.contains("parseSelection(node.path(\"selection\").path(t.code))"),
         )
+    }
+
+    @Test
+    fun `不再有独立的成员名单设置项`() {
+        // 方案 A：删掉「大号名单 / 小号名单」两个设置项。它们的成员集合可直接由
+        // selection 的 key 推导，且档位决定方向 → 同一份配置里只有一个会被用到，
+        // 另一个恒为死数据。而且它们没有任何运行时消费者（task/ 与 hook/ 零引用）。
+        val baseModel = File("src/main/java/fansirsqi/xposed/sesame/model/BaseModel.kt").readText()
+        assertTrue(
+            "BaseModel 不应再声明 mainAccountList / subAccountList",
+            !baseModel.contains("mainAccountList") && !baseModel.contains("subAccountList"),
+        )
+        assertTrue(
+            "apply() 不应再有 mainList / subList 参数",
+            !sourceText.contains("mainList: Set<String>") && !sourceText.contains("subList: Set<String>"),
+        )
+        assertTrue(
+            "不应再有读取成员名单的辅助方法",
+            !sourceText.contains("readStoredRelationList"),
+        )
+        // 档位记录里也不应再存一份成员名单（protectedAccounts 就是旧的大号名单）
+        assertTrue("档位记录不应再存 protectedAccounts", !sourceText.contains("protectedAccounts"))
     }
 
     @Test
