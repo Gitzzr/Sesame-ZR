@@ -152,3 +152,47 @@
    若上游把门控拆开，需要同步更新。
 4. **未做逐功能勾选**：本版是"全量套用 12 个名单"。若用户反馈某些功能不想套用，
    可加一个功能勾选步骤（会重新引入复杂度，故未默认提供）。
+
+## 七、第二轮：改为「逐项功能勾选」（2026-09-23 增补）
+
+### 7.1 需求变化
+
+第一轮是「选好友 → 全量套用 12 个名单」。用户要求改成：
+**在名单里选中某个账号后，完整展示该账号对应的全部功能，供用户逐项勾选，默认勾选全部推荐项**，
+两个名单（大号 / 小号）都按此逻辑。
+
+### 7.2 实现方式
+
+| 层 | 改动 |
+| --- | --- |
+| 数据 | `FriendListRef` 增加 `featureLabel`（方向化文案）、`gateSwitches`（勾选时连带写入的开关）、`effective`（当前实现是否生效）、`id`；删除 `altFillable` 与独立的 `ALT_WHITELIST_SWITCHES` |
+| 推荐 | 新增 `recommendedForMainList()`（12 项）/ `recommendedForSubList()`（1 项）/ `recommendedIds(方向)` / `isSelectable(项, 方向)` |
+| 应用 | `apply()` 增加 `mainSelection` / `subSelection`；新增 `aggregateSelection()` 把「好友 → 功能」反转为「功能 → 好友」，**勾了就填、填了就开开关**，未勾选保持档位基线 |
+| 持久 | `account_preset.json` 增加 `featureSelection.{main,sub}`；`readRecord()` 解析回来供下次复用 |
+| UI | 弃用 `ListDialog`（行点击被硬编码为切换勾选，做不了下钻），改自建两级对话框 |
+
+### 7.3 两处必须知道的实现坑
+
+1. **裸 `ListView` 放进 `AlertDialog` 会塌成 0 高度** —— `setView` 给的是 `wrap_content`。
+   修法：套一层 `FrameLayout` 并给固定高度（屏高的 55%）。
+2. **中立按钮默认会关闭对话框** —— 「全选推荐」「按推荐重置」点一下就关掉，用户没法接着调整。
+   修法：改用 `builder.create()` + `setOnShowListener` 里覆写 `BUTTON_NEUTRAL` 的点击。
+
+另外适配器里读计数**不能用会写入的 `getOrPut`**：`getView` 会对每个好友调用一次，
+用 `checkedIds()` 会给 273 个好友全部建出空条目 —— 改成只读 `selection[...]?.size ?: 0`。
+
+### 7.4 K50 验证（可回滚，已还原）
+
+备份（md5 `5b696cdf…`）→ 走完两级流程 → 核对落盘 → **还原并重启支付宝**（md5 一致、`account_preset.json` 已移除）。
+
+| 检查项 | 结果 |
+| --- | --- |
+| 一级列表默认状态 | 大号「提醒-*梓锐」显示「**已启用 12 项**」 ✅ 与推荐集一致 |
+| 二级功能清单 | 4 组分节共 26 项；服务类默认勾选、索取类默认不勾、「复活 TA 的能量」标注**当前版本不生效**且不勾、豁免组两项默认勾选 ✅ |
+| 确认页 | 「大号名单：1 个账号，共启用 12 项功能」并逐项列出 ✅ |
+| 档位记录 | `featureSelection.main[uid]` 落盘 12 个功能 id ✅ |
+| 勾选的功能 | 11 个名单字段全部指向大号；「不收能量名单」`[] → ['2088412711917481']` ✅ |
+| 未勾选的功能 | 名单保持空；门控开关 `hireAnimal` / `stallAutoTicket` / `cleanOcean` **保持 False**（未被误开）✅ |
+| 已勾选功能的门控 | `collectToFriend` `False → True` ✅ |
+
+日志：`覆盖 223 项设置；套用好友名单 12 处`。CI 三步 + 新增单测全通过。
