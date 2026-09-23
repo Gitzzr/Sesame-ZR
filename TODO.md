@@ -123,7 +123,7 @@ StopExecutionException: Your project path contains non-ASCII characters.
 
 ### P1-4 大号列表配置（好友名单一键套用）的实机回归
 
-设计稿与实施记录见 [`docs/superpowers/plans/2026-09-23-friend-list-preset.md`](docs/superpowers/plans/2026-09-23-friend-list-preset.md)。
+设计稿与实施记录见 [`docs/superpowers/plans/2026-09-23-account-preset.md`](docs/superpowers/plans/2026-09-23-account-preset.md)（同一个功能，文档已合并为一份）。
 
 - [x] K50 指定大号名单后套用「小号推荐配置」：12 个功能名单全部指向大号、门控开关同步打开、
       索取/干扰类名单清空、大号写入「不收能量」；核对后已还原配置（2026-09-23）
