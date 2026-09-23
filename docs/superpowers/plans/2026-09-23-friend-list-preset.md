@@ -294,3 +294,72 @@ R4~R12：两个名单设置项与 `featureSelection` 重复、大小号名单在
 `protectedAccounts` / `tierLabel` 冗余、命名与"档位"交叉、一级页"列入名单"勾选框语义为空、
 确认页「覆盖 N 项」用的是静态表计数（不准）、两张表登记缺一致性断言。
 用户选择"先列出来逐个商量"，故本轮不动。
+
+## 九、第五轮：方案 A —— 删掉两个成员名单设置项（2026-09-24）
+
+用户选定方案 A：把「大号名单 / 小号名单」两个设置项**全部删除**。
+
+### 9.1 删的理由（三条硬事实）
+
+| # | 事实 | 依据 |
+| --- | --- | --- |
+| 1 | **没有任何运行时消费者** | `task/` 与 `hook/` 对 `mainAccountList` / `subAccountList` 零引用；全仓只有声明、常量名与我自己写的一处读取 |
+| 2 | **与档位记录里的勾选完全重复** | `selection.<tier>` 的 **key 就是好友 uid** → 成员集合可直接推导 |
+| 3 | **同一份配置里只有一个会被用到** | 档位决定方向，而两个字段同属一份 `config_v2.json` → 另一个恒为死数据 |
+
+### 9.2 改动清单
+
+| 层 | 改动 |
+| --- | --- |
+| 设置项 | `BaseModel` 删除 `mainAccountList` / `subAccountList` 的声明与注册（字段数 28 → 26） |
+| 策略表 | `AccountPresetPolicy.FIELDS` 删掉对应两行（302 → 300） |
+| 常量 | `AccountFriendListPolicy` 删除 `MAIN_LIST_MODEL/FIELD`、`SUB_LIST_MODEL/FIELD` |
+| 应用器 | `apply()` 参数 **4 → 1**：`selection: Map<好友, Set<功能>>`；好友集合 = `selection.filterValues{非空}.keys`；`aggregateSelection()` 不再需要额外的名单参数 |
+| 大号档清理 | 从"按 `subList` 全量移除"改为"移除**本次选中的好友**" |
+| 记录 | `PresetRecord` 改为 `selections: Map<tierCode, Map<friendId, Set<featureId>>>`；JSON 从 `featureSelection.{main,sub}` + `protectedAccounts` + `tierLabel` 简化为 `selection.{alt,main}`（R6/R7 一并消失） |
+| 辅助方法 | 删除 `readStoredRelationList()`（它就是为了读那两个字段） |
+| 界面 | 一级列表**去掉"是否列入名单"勾选框**（名单没有消费者，勾它不产生任何效果）；点整行 → 二级；行尾「已配置 N 项 / 未配置」；标题从「批量启用功能 · 小号名单」改为「批量启用功能 · 小号推荐配置」 |
+
+### 9.3 实施中抓到的一个回归
+
+重构后第一次上机，点进二级页发现**默认勾选是空的** —— 因为我把"预置推荐项"的两处逻辑（原来的成员初始化 + 行点击时的补齐）都删掉了，
+而新的 `checkedIds()` 只 `getOrPut { LinkedHashSet() }`。
+
+修法：把预置逻辑收进 `checkedIds(friend, recommended)` —— **首次打开某个好友时按推荐预置，已配过的沿用上次**。
+这既恢复了"默认自动勾选所有推荐功能"，也保证重开时不会被重置。
+
+> 教训：交互重构时，"默认值从哪来"这类隐式行为最容易丢；上线前必须真的走一遍点进点出，不能只看编译通过。
+
+### 9.4 K50 验证（可回滚，已还原）
+
+先删掉旧 schema 的 `account_preset.json`（模拟首次使用）再走流程：
+
+| 检查项 | 结果 |
+| --- | --- |
+| 一级标题 | 「批量启用功能 · 小号推荐配置（共 6 位好友）」—— 不再有"名单"字样 ✅ |
+| 一级行 | 无勾选框；6 位好友全部「未配置 ▸」（K50 只有 1 个账号，无同机预置）✅ |
+| 点进大号 → 二级 | 默认勾选 **12 项** ✅ |
+| 确定后一级行 | 变成「**已配置 12 项** ▸」✅ |
+| 应用日志 | `覆盖 196 项设置；批量启用 12 项功能` ✅ |
+| 配置写入 | 勾选的 12 项全部指向大号 ✅ |
+| 未勾选的与参数 | `stallTicketList` / `hireAnimalList` / `waterFriendCount(66)` / `alternativeAccountList` / `notInviteList` **全部未动** ✅ |
+| `BaseModel` 字段数 | 26（少了那两项），不含 `mainAccountList` ✅ |
+| **新记录结构** | `{tier, appliedAt, appliedCount, selection:{alt:{uid:[12 项]}, main:{}}}` —— 无 `protectedAccounts`、无 `tierLabel`、无 `featureSelection` ✅ |
+| **复用** | 重新打开流程，大号那行仍显示「已配置 12 项」→ 勾选从记录恢复，**不再依赖已删掉的设置项** ✅ |
+
+验证后已还原现场（md5 一致、`account_preset.json` 已移除）。CI 三步全绿。
+
+### 9.5 R 系列进度
+
+| 编号 | 状态 |
+| --- | --- |
+| R1 取消勾选被静默忽略 | ✅ 第四轮已修 |
+| R2 未勾选的名单被静默清空 | ✅ 第四轮已修 |
+| R4 两个名单项与记录重复 | ✅ 本轮（方案 A） |
+| R5 两个名单项在同一配置里互斥 | ✅ 本轮（方案 A） |
+| R6 `protectedAccounts` 冗余 | ✅ 本轮（其内容就是旧的大号名单） |
+| R7 `tierLabel` 可推导 | ✅ 本轮（顺手去掉） |
+| R8 命名与"档位"交叉 | ✅ 本轮（"名单"概念消失，标题改为「X 推荐配置」） |
+| R9 一级页勾选框语义为空 | ✅ 本轮（勾选框已删） |
+| R11 两张表重复登记、缺一致性断言 | ⬜ 待处理 |
+| R12 `isSelectable` 与 `recommendedIds` 在排除类上重合 | ⬜ 待处理（判断为不构成问题，待确认） |
