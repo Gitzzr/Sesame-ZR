@@ -66,18 +66,26 @@ object AccountPresetMenu {
      * 编辑过程中的状态：两份名单 + 两个方向各自的「逐好友功能勾选」。
      * 只编辑与当前档位对应的那个方向，另一个方向原样带到确认页。
      */
+    /**
+     * 编辑过程中的状态：**只有一份勾选表**（好友 → 要启用的功能 id）。
+     *
+     * 没有"成员名单"这一层 —— 值为空集合的好友就是不处理；好友集合与功能集合
+     * 来自同一份数据，因此不会出现"名单与勾选不一致"。
+     */
     private class EditorState(
-        val mainList: MutableSet<String>,
-        val subList: MutableSet<String>,
-        val mainSelection: MutableMap<String, MutableSet<String>>,
-        val subSelection: MutableMap<String, MutableSet<String>>,
+        val selection: MutableMap<String, MutableSet<String>> = LinkedHashMap(),
     ) {
-        fun members(isMainList: Boolean): MutableSet<String> = if (isMainList) mainList else subList
-        fun selection(isMainList: Boolean): MutableMap<String, MutableSet<String>> =
-            if (isMainList) mainSelection else subSelection
+        /**
+         * 取该好友的勾选集合。
+         *
+         * **首次打开某个好友时按推荐项预置** —— 这就是"默认自动勾选所有推荐功能"。
+         * 已经配过的好友沿用上次的勾选，不会被重置。
+         */
+        fun checkedIds(friend: String, recommended: Set<String>): MutableSet<String> =
+            selection.getOrPut(friend) { LinkedHashSet(recommended) }
 
-        fun checkedIds(isMainList: Boolean, friend: String): MutableSet<String> =
-            selection(isMainList).getOrPut(friend) { LinkedHashSet() }
+        /** 会被处理的好友（至少勾了 1 项功能） */
+        fun activeFriends(): Set<String> = selection.filterValues { it.isNotEmpty() }.keys
     }
 
     private fun resolveAccounts(userList: List<UserEntity>): List<Account> {
@@ -111,13 +119,9 @@ object AccountPresetMenu {
     // ================================================================== 名单 + 功能配置
 
     private fun openEditor(context: Context, account: Account, tier: PresetTier, onApplied: () -> Unit) {
-        // 大号名单用于小号档，小号名单用于大号档
+        // 沿用既有命名：isMainList = true 表示"本机是小号、要服务大号"这个方向，
+        // 它决定推荐项与"豁免项是否可选"，与"名单"无关。
         val isMainList = tier == PresetTier.ALT
-        val listField = if (isMainList) {
-            AccountFriendListPolicy.MAIN_LIST_FIELD
-        } else {
-            AccountFriendListPolicy.SUB_LIST_FIELD
-        }
 
         val friends = try {
             AccountPreset.readFriendList(account.uid)
@@ -126,64 +130,33 @@ object AccountPresetMenu {
             emptyList()
         }
         if (friends.isEmpty()) {
-            ToastUtil.showToast(context, "未读取到好友列表，本次不改动任何名单")
-            showConfirm(context, account, tier, emptySet(), emptySet(), emptyMap(), emptyMap(), onApplied)
+            ToastUtil.showToast(context, "未读取到好友列表，无法配置")
+            showConfirm(context, account, tier, emptyMap(), onApplied)
             return
         }
 
-        val record = try {
-            AccountPreset.readRecord(account.uid)
-        } catch (t: Throwable) {
-            null
-        }
         val ids = friends.map { it.userId }.toSet()
-
-        fun storedList(field: String) = try {
-            AccountPreset.readStoredRelationList(account.uid, field).filter { it in ids }.toSet()
-        } catch (t: Throwable) {
-            emptySet()
-        }
-
-        // 从未配过时，默认把「本机其他已载入账号」勾为名单成员
-        val fallback = try {
-            AccountPreset.otherAccountIds(account.uid).filter { it in ids }.toSet()
-        } catch (t: Throwable) {
-            emptySet()
-        }
-        val activeStored = storedList(listField)
-        val activeMembers = LinkedHashSet(if (activeStored.isNotEmpty()) activeStored else fallback)
-        val otherField = if (isMainList) {
-            AccountFriendListPolicy.SUB_LIST_FIELD
-        } else {
-            AccountFriendListPolicy.MAIN_LIST_FIELD
-        }
-        val otherMembers = LinkedHashSet(storedList(otherField))
-
-        val mainMembers = if (isMainList) activeMembers else otherMembers
-        val subMembers = if (isMainList) otherMembers else activeMembers
-
-        // 初始化勾选：优先沿用上次保存的，缺失的按推荐项补全（"默认自动勾选所有推荐功能"）
         val recommended = AccountFriendListPolicy.recommendedIds(isMainList)
-        fun initSelection(stored: Map<String, Set<String>>?, members: Set<String>) =
-            LinkedHashMap<String, MutableSet<String>>().apply {
-                members.forEach { uid ->
-                    put(uid, LinkedHashSet(stored?.get(uid) ?: recommended))
-                }
-            }
+        val state = EditorState()
 
-        val state = EditorState(
-            mainList = LinkedHashSet(mainMembers),
-            subList = LinkedHashSet(subMembers),
-            mainSelection = initSelection(
-                if (isMainList) record?.mainSelection else record?.subSelection, activeMembers,
-            ),
-            subSelection = LinkedHashMap(),
-        )
-        // 另一个方向若原本有勾选，原样保留（不参与本次编辑）
-        if (isMainList) {
-            otherMembers.forEach { uid -> state.subSelection[uid] = LinkedHashSet(record?.subSelection?.get(uid).orEmpty()) }
+        // 上次该档位的勾选（只是默认值，不是配置）；只保留当前仍是好友的
+        val stored = try {
+            AccountPreset.readRecord(account.uid)?.selectionFor(tier).orEmpty()
+        } catch (t: Throwable) {
+            emptyMap()
+        }.filterKeys { it in ids }
+
+        if (stored.isNotEmpty()) {
+            stored.forEach { (uid, sel) -> state.selection[uid] = LinkedHashSet(sel) }
         } else {
-            otherMembers.forEach { uid -> state.mainSelection[uid] = LinkedHashSet(record?.mainSelection?.get(uid).orEmpty()) }
+            // 从未配过：把「本机其他已载入账号」按推荐项预置好，同机双号时开箱即用
+            try {
+                AccountPreset.otherAccountIds(account.uid)
+                    .filter { it in ids }
+                    .forEach { uid -> state.selection[uid] = LinkedHashSet(recommended) }
+            } catch (t: Throwable) {
+                Log.printStackTrace(TAG, "读取本机账号失败", t)
+            }
         }
 
         showFriendDialog(context, account, tier, isMainList, friends, state, onApplied)
@@ -201,24 +174,22 @@ object AccountPresetMenu {
         state: EditorState,
         onApplied: () -> Unit,
     ) {
-        val label = if (isMainList) "大号名单" else "小号名单"
-        val adapter = FriendAdapter(context, friends, state, isMainList)
+        val adapter = FriendAdapter(context, friends, state)
         val listView = ListView(context).apply {
             this.adapter = adapter
-            dividerHeight = 1
+            // 点某一行 = 为该账号选择要启用哪些功能（不再有"是否列入名单"这一层）
             setOnItemClickListener { _, _, position, _ ->
-                val uid = friends[position].userId
-                val members = state.members(isMainList)
-                if (!members.remove(uid)) {
-                    members.add(uid)
-                    // 新加入名单的账号按推荐项初始化勾选
-                    state.checkedIds(isMainList, uid).apply {
-                        if (isEmpty()) addAll(AccountFriendListPolicy.recommendedIds(isMainList))
-                    }
+                val friend = friends[position]
+                val recommended = AccountFriendListPolicy.recommendedIds(isMainList)
+                showFeatureDialog(
+                    context, friend, isMainList,
+                    state.checkedIds(friend.userId, recommended),
+                ) {
+                    adapter.notifyDataSetChanged()
                 }
-                adapter.notifyDataSetChanged()
             }
         }
+
         // 裸 ListView 放进 AlertDialog 会因 wrap_content 塌成 0 高度：
         // 套一层纵向容器，里面放「说明文字 + 固定高度的列表」。
         val height = (context.resources.displayMetrics.heightPixels * 0.5f).toInt()
@@ -227,7 +198,7 @@ object AccountPresetMenu {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, 0, pad, 0)
             addView(TextView(context).apply {
-                text = explainText(label)
+                text = EXPLAIN_TEXT
                 textSize = 13f
                 setTextColor(0xFF888888.toInt())
                 setPadding(0, 0, 0, pad)
@@ -241,13 +212,12 @@ object AccountPresetMenu {
         }
 
         val dialog = AlertDialog.Builder(context)
-            .setTitle("批量启用功能 · $label（共 ${friends.size} 位好友）")
+            .setTitle("批量启用功能 · ${tier.label}推荐配置（共 ${friends.size} 位好友）")
             .setView(holder)
             .setPositiveButton("下一步") { _, _ ->
                 showConfirm(
                     context, account, tier,
-                    state.mainList, state.subList,
-                    state.mainSelection, state.subSelection,
+                    state.selection.mapValues { it.value.toSet() },
                     onApplied,
                 )
             }
@@ -257,26 +227,24 @@ object AccountPresetMenu {
         dialog.setOnShowListener {
             // 覆盖中立按钮的默认行为：只重置勾选，不关闭对话框
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener {
-                val members = state.members(isMainList)
-                members.forEach { uid ->
-                    state.checkedIds(isMainList, uid).apply {
-                        clear()
-                        addAll(AccountFriendListPolicy.recommendedIds(isMainList))
-                    }
+                val active = state.activeFriends()
+                val recommended = AccountFriendListPolicy.recommendedIds(isMainList)
+                active.forEach { uid ->
+                    state.selection[uid] = LinkedHashSet(recommended)
                 }
                 adapter.notifyDataSetChanged()
-                ToastUtil.showToast(context, "已把 ${members.size} 个账号的勾选重置为推荐项")
+                ToastUtil.showToast(context, "已把 ${active.size} 个账号的勾选重置为推荐项")
             }
         }
         dialog.show()
     }
 
     /** 一级列表的适配器：每行 = 勾选框 + 名称 + 「N 项」（点击进入功能勾选） */
+    /** 一级列表：每行 = 好友名 + 「已配置 N 项」（点击进入功能清单） */
     private class FriendAdapter(
         private val context: Context,
         private val friends: List<AccountPreset.Friend>,
         private val state: EditorState,
-        private val isMainList: Boolean,
     ) : BaseAdapter() {
 
         override fun getCount() = friends.size
@@ -288,44 +256,28 @@ object AccountPresetMenu {
             val density = ctx.resources.displayMetrics.density
             fun dp(v: Int) = (v * density).toInt()
 
-            val row = LinearLayout(ctx).apply {
+            val friend = friends[position]
+            // 只读，避免在渲染时为每个好友创建空条目
+            val count = state.selection[friend.userId]?.size ?: 0
+            return LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(12), dp(12), dp(12), dp(12))
+                addView(TextView(ctx).apply {
+                    text = friend.name
+                    textSize = 15f
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    layoutParams = LinearLayout.LayoutParams(
+                        0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f,
+                    )
+                })
+                addView(TextView(ctx).apply {
+                    text = if (count > 0) "已配置 $count 项  ▸" else "未配置  ▸"
+                    textSize = 13f
+                    setPadding(dp(8), dp(8), dp(4), dp(8))
+                })
             }
-            val friend = friends[position]
-            val members = state.members(isMainList)
-
-            row.addView(CheckBox(ctx).apply {
-                isChecked = friend.userId in members
-                isFocusable = false
-                isClickable = false
-            })
-            row.addView(TextView(ctx).apply {
-                text = friend.name
-                textSize = 15f
-                maxLines = 1
-                ellipsize = android.text.TextUtils.TruncateAt.END
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            })
-            // 只读，避免在渲染时为每个好友创建空条目
-            val count = state.selection(isMainList)[friend.userId]?.size ?: 0
-            row.addView(TextView(ctx).apply {
-                text = if (friend.userId in members) "已启用 $count 项  ▸" else "未启用  ▸"
-                textSize = 13f
-                setPadding(dp(8), dp(8), dp(4), dp(8))
-                isClickable = true
-                isFocusable = false
-                setOnClickListener {
-                    // 未列入名单则先自动列入，再配置功能
-                    if (friend.userId !in members) members.add(friend.userId)
-                    showFeatureDialog(
-                        ctx, friend, isMainList,
-                        state.checkedIds(isMainList, friend.userId),
-                    ) { notifyDataSetChanged() }
-                }
-            })
-            return row
         }
     }
 
@@ -431,10 +383,9 @@ object AccountPresetMenu {
     }
 
     /** 一级页的说明：讲清"只批量启用、不配参数" */
-    private fun explainText(listLabel: String): String = buildString {
-        append("勾选账号 = 把它列入这份$listLabel；点右侧「N 项」为该账号选择要启用哪些功能。\n")
-        append("这里只负责「批量启用功能」，不涉及具体参数 —— 参数仍在各模块的账号配置里设置。")
-    }
+    private const val EXPLAIN_TEXT =
+        "点某个账号，为它选择要启用哪些功能（默认已按推荐勾好）。\n" +
+            "这里只负责「批量启用功能」，不涉及具体参数 —— 参数仍在各模块的账号配置里设置。"
 
     /** 二级页的说明：把"批量启用"与"具体参数配置"的边界写清楚 */
     private fun featureExplainText(friendName: String): String = buildString {
@@ -454,25 +405,19 @@ object AccountPresetMenu {
         context: Context,
         account: Account,
         tier: PresetTier,
-        mainList: Set<String>,
-        subList: Set<String>,
-        mainSelection: Map<String, Set<String>>,
-        subSelection: Map<String, Set<String>>,
+        selection: Map<String, Set<String>>,
         onApplied: () -> Unit,
     ) {
         AlertDialog.Builder(context)
             .setTitle("确认应用【${tier.label}推荐配置】？")
-            .setMessage(buildConfirmText(account, tier, mainList, subList, mainSelection, subSelection))
+            .setMessage(buildConfirmText(account, tier, selection))
             .setPositiveButton("确认应用") { _, _ ->
                 val result = try {
                     AccountPreset.apply(
                         tier = tier,
                         targetUid = account.uid,
                         context = context,
-                        mainList = mainList,
-                        subList = subList,
-                        mainSelection = mainSelection,
-                        subSelection = subSelection,
+                        selection = selection,
                     )
                 } catch (t: Throwable) {
                     Log.printStackTrace(TAG, "应用档位失败", t)
@@ -492,20 +437,15 @@ object AccountPresetMenu {
     private fun buildConfirmText(
         account: Account,
         tier: PresetTier,
-        mainList: Set<String>,
-        subList: Set<String>,
-        mainSelection: Map<String, Set<String>>,
-        subSelection: Map<String, Set<String>>,
+        selection: Map<String, Set<String>>,
     ): String {
         val isMainTier = tier == PresetTier.MAIN
-        val activeList = if (isMainTier) subList else mainList
-        val activeSel = if (isMainTier) subSelection else mainSelection
-        val activeLabel = if (isMainTier) "小号名单" else "大号名单"
+        val active = selection.filterValues { it.isNotEmpty() }
 
-        // 聚合：哪些功能会被写入
+        // 聚合：哪些功能会被写入、各涉及多少个账号
         val enabled = LinkedHashMap<String, MutableSet<String>>()
-        activeList.forEach { uid ->
-            activeSel[uid].orEmpty().forEach { fid ->
+        active.forEach { (uid, ids) ->
+            ids.forEach { fid ->
                 val ref = AccountFriendListPolicy.byId(fid) ?: return@forEach
                 if (!AccountFriendListPolicy.isSelectable(ref, !isMainTier)) return@forEach
                 enabled.getOrPut(fid) { LinkedHashSet() }.add(uid)
@@ -515,12 +455,13 @@ object AccountPresetMenu {
         val sb = StringBuilder()
         sb.append("账号：").append(account.showName).append("（").append(account.uid).append("）\n")
         sb.append("当前：").append(AccountPreset.tierSummary(account.uid)).append("\n\n")
-        if (activeList.isEmpty()) {
-            sb.append("$activeLabel：未指定账号 → 不改动任何功能名单，也不打开任何开关\n\n")
+
+        if (active.isEmpty()) {
+            sb.append("未选择任何账号 → 不改动任何功能名单，也不打开任何开关\n\n")
         } else {
-            sb.append("将对「$activeLabel」的 ").append(activeList.size)
-                .append(" 个账号批量启用 ").append(enabled.size).append(" 项功能\n")
-            sb.append("（只写入下列好友名单并打开对应开关，不改具体参数）\n")
+            sb.append("将对 ").append(active.size).append(" 个账号批量启用 ")
+                .append(enabled.size).append(" 项功能\n")
+            sb.append("（只写入下列好友列表并打开对应开关，不改具体参数）\n")
             enabled.entries.take(8).forEach { (fid, uids) ->
                 val ref = AccountFriendListPolicy.byId(fid) ?: return@forEach
                 sb.append("· ").append(ref.label)
@@ -535,10 +476,10 @@ object AccountPresetMenu {
                 sb.append("· 开启各模块的收益与进度类功能（覆盖 ")
                     .append(AccountPresetPolicy.overrideCount(tier)).append(" 项设置）\n")
                 sb.append("· 保持贴罚单、丢肥料、请走小摊等纯干扰项关闭\n")
-                if (subList.isEmpty()) {
-                    sb.append("· 未指定小号名单：不改动排除名单\n")
+                if (active.isEmpty()) {
+                    sb.append("· 未选择账号：不改动排除名单\n")
                 } else {
-                    sb.append("· 把小号（").append(subList.size).append(" 个）从「不收能量」等 ")
+                    sb.append("· 把本次选中的账号（").append(active.size).append(" 个）从「不收能量」等 ")
                         .append(AccountFriendListPolicy.exclusionLists().size)
                         .append(" 个排除名单里移除\n")
                     sb.append("  ⚠️ 这是刻意的：大号需要收取小号的能量\n")
