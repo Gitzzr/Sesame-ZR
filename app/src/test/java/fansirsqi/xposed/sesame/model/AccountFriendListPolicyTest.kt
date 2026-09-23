@@ -122,23 +122,26 @@ class AccountFriendListPolicyTest {
     }
 
     @Test
-    fun `不收能量名单是小号档唯一且必须的排除落点`() {
+    fun `不收能量名单两档都不由档位自动写，取消勾选才真正生效`() {
         val row = AccountPresetPolicy.FIELDS.first {
             it.modelCode == "AntForest" && it.fieldCode == "dontCollectList"
         }
-        assertEquals("大号档绝不能写「不收能量名单」", AccountPresetPolicy.KEEP, row.mainValue)
-        assertTrue(
-            "小号档必须把它写成大号名单",
-            row.altValue === WriteMainAccountList,
-        )
-        assertTrue(
-            "小号档的取值必须被判定为中性（安全）",
-            AccountPresetPolicy.isNeutralValue(row.altValue),
-        )
+        // 两档都是「不覆盖」：它只由勾选「不收取 TA 的能量」写入。
+        // 曾经用过一个 WriteMainAccountList 标记让档位自动写它，结果是用户在二级页
+        // 取消勾选后，档位写的值仍然留着 —— 取消操作被静默忽略。
+        assertEquals(AccountPresetPolicy.KEEP, row.mainValue)
+        assertEquals(AccountPresetPolicy.KEEP, row.altValue)
         assertEquals(
             "该项必须被归类为排除/豁免类",
             FriendListKind.EXCLUSION,
             AccountFriendListPolicy.FRIEND_LISTS.first { it.fieldCode == "dontCollectList" }.kind,
+        )
+        // 兜底不靠名单，而靠开关：小号档 collectEnergy = false
+        assertEquals(
+            false,
+            AccountPresetPolicy.FIELDS
+                .first { it.modelCode == "AntForest" && it.fieldCode == "collectEnergy" }
+                .altValue,
         )
     }
 

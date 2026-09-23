@@ -58,12 +58,12 @@ data class PresetField(
     val altGuardField: String? = null,
     val note: String = "",
 ) {
+    /** 唯一标识：`模型.字段` */
+    val id: String get() = "$modelCode.$fieldCode"
+
     /** 取指定档位要写入的值 */
     fun valueFor(tier: PresetTier): Any? = if (tier == PresetTier.MAIN) mainValue else altValue
 }
-
-/** 「写入大号名单」的占位标记：由 [AccountPreset] 在运行时解析为 `BaseModel.mainAccountList` 的实际内容 */
-object WriteMainAccountList
 
 object AccountPresetPolicy {
 
@@ -138,7 +138,7 @@ object AccountPresetPolicy {
      * 全量设置项表。
      *
      * 约定：
-     * - [FieldScope.CROSS_ACCOUNT] 的行，`altValue` 必须是中性值（false / 0 / 空集合 / 空 Map / 空串 / [WriteMainAccountList]）；
+     * - [FieldScope.CROSS_ACCOUNT] 的**开关类**行，`altValue` 必须是中性值（false / 0 / 空集合 / 空 Map / 空串）；
      * - 名单类字段（SelectModelField / SelectAndCountModelField）在大号档位一律 [KEEP]，因为无法预知用户要给谁浇水、送谁道具；
      * - 调优类参数（间隔、次数、时间点）不参与档位切换，一律 [KEEP]，避免一键切换打乱用户手感。
      */
@@ -193,14 +193,15 @@ object AccountPresetPolicy {
                 cross(FOREST, "collectGiftBox", "领取好友礼盒", ON, OFF),
                 cross(FOREST, "helpFriendCollectType", "复活能量", NONE, NONE),
                 // —— 跨账号：名单类，小号清空 ——
-                cross(FOREST, "dontCollectList", "不收能量名单", KEEP, WriteMainAccountList, "小号档写入「大号名单」，保证小号不偷大号；大号档不写此项（大号要收小号能量）"),
-                cross(FOREST, "alternativeAccountList", "小号列表（复活能量保护名单）", KEEP, EMPTY_SET, "复活能量体系的独立名单，小号档下该体系整体关闭，故清空不生效"),
-                cross(FOREST, "helpFriendCollectList", "复活能量好友列表", KEEP, EMPTY_SET, "同上：小号档不参与复活能量体系"),
-                cross(FOREST, "giveEnergyRainList", "赠送能量雨名单", KEEP, EMPTY_SET),
-                cross(FOREST, "whoYouWantToGiveTo", "赠送道具对象", KEEP, EMPTY_SET),
+                cross(FOREST, "dontCollectList", "不收能量名单", KEEP, KEEP, "只由二级页勾选「不收取 TA 的能量」写入；静态表不覆盖（小号不偷大号由 collectEnergy=false 兜底）"),
+                cross(FOREST, "alternativeAccountList", "小号列表（复活能量保护名单）", KEEP, KEEP, "只由勾选「帮 TA 复活能量」写入；静态表不覆盖"),
+                cross(FOREST, "helpFriendCollectList", "复活能量好友列表", KEEP, KEEP, "只由勾选写入；该功能当前版本不生效，默认也不推荐"),
+                cross(FOREST, "giveEnergyRainList", "赠送能量雨名单", KEEP, KEEP),
+                cross(FOREST, "whoYouWantToGiveTo", "赠送道具对象", KEEP, KEEP),
                 cross(FOREST, "giveProp", "赠送道具", OFF, OFF),
-                cross(FOREST, "waterFriendList", "浇水好友列表", KEEP, EMPTY_MAP),
-                cross(FOREST, "waterFriendCount", "浇水克数", KEEP, NONE),
+                cross(FOREST, "waterFriendList", "浇水好友列表", KEEP, KEEP),
+                // 浇水克数：合法值只有 10/18/33/66，0 会让浇水失效 → "具体参数"，不随档位改动
+                cross(FOREST, "waterFriendCount", "浇水克数", KEEP, KEEP),
                 cross(FOREST, "notifyFriend", "浇水通知好友", OFF, OFF),
                 cross(FOREST, "returnWater10", "返水 10g 门槛", KEEP, NONE),
                 cross(FOREST, "returnWater18", "返水 18g 门槛", KEEP, NONE),
@@ -264,25 +265,25 @@ object AccountPresetPolicy {
         addAll(
             listOf(
                 // —— 跨账号 ——
-                cross(FARM, "feedFriendAnimalList", "帮喂小鸡好友列表", KEEP, EMPTY_MAP),
+                cross(FARM, "feedFriendAnimalList", "帮喂小鸡好友列表", KEEP, KEEP),
                 cross(FARM, "rewardFriend", "打赏好友", OFF, OFF),
                 cross(FARM, "getFeed", "一起拿饲料", OFF, OFF),
                 guardedCross(FARM, "getFeedType", "一起拿饲料动作", NONE, NONE, "getFeed", "GetFeedType：0=选中赠送，1=随机赠送，没有「不执行」选项；安全性由 getFeed 开关保证"),
-                cross(FARM, "getFeedlList", "一起拿饲料好友列表", KEEP, EMPTY_SET),
+                cross(FARM, "getFeedlList", "一起拿饲料好友列表", KEEP, KEEP),
                 cross(FARM, "acceptGift", "收麦子", OFF, OFF),
-                cross(FARM, "visitFriendList", "送麦子好友列表", KEEP, EMPTY_MAP),
+                cross(FARM, "visitFriendList", "送麦子好友列表", KEEP, KEEP),
                 cross(FARM, "hireAnimal", "雇佣好友小鸡", ON, OFF, "占用好友小鸡产出"),
                 guardedCross(FARM, "hireAnimalType", "雇佣小鸡动作", NONE, 1, "hireAnimal", "HireAnimalType：0=选中雇佣，1=选中不雇佣"),
-                cross(FARM, "hireAnimalList", "雇佣小鸡好友列表", KEEP, EMPTY_SET),
+                cross(FARM, "hireAnimalList", "雇佣小鸡好友列表", KEEP, KEEP),
                 cross(FARM, "notifyFriend", "通知赶鸡", OFF, OFF),
                 guardedCross(FARM, "notifyFriendType", "通知赶鸡动作", 1, 1, "notifyFriend", "NotifyFriendType：0=选中通知，1=选中不通知"),
-                cross(FARM, "notifyFriendList", "通知赶鸡好友列表", KEEP, EMPTY_SET),
-                cross(FARM, "dontSendFriendList", "遣返好友排除名单", KEEP, EMPTY_SET),
+                cross(FARM, "notifyFriendList", "通知赶鸡好友列表", KEEP, KEEP),
+                cross(FARM, "dontSendFriendList", "遣返好友排除名单", KEEP, KEEP),
                 cross(FARM, "collectChickenDiary", "小鸡日记 | 给好友点赞", NONE, NONE),
                 cross(FARM, "visitAnimal", "到访小鸡送礼", OFF, OFF),
                 cross(FARM, "family", "家庭", OFF, OFF),
                 cross(FARM, "familyOptions", "家庭选项", KEEP, EMPTY_SET),
-                cross(FARM, "notInviteList", "家庭好友分享排除列表", KEEP, EMPTY_SET),
+                cross(FARM, "notInviteList", "家庭好友分享排除列表", KEEP, KEEP),
                 // 注：AntFarm.giftFamilyDrawFragment 的 addField 在主源码里是注释状态（AntFarm.kt:613），
                 // 未注册进 ModelConfig，因此不登记到本表 —— 否则每次切换都会多出一条「跳过」噪声，
                 // 掩盖真正的字段缺失。同理未登记的还有 AntMember.annualReview（年度回顾已下线）。
@@ -335,7 +336,7 @@ object AccountPresetPolicy {
             listOf(
                 cross(OCEAN, "cleanOcean", "清理好友海洋", ON, OFF),
                 guardedCross(OCEAN, "cleanOceanType", "清理动作", NONE, 1, "cleanOcean", "CleanOceanType：0=选中清理，1=选中不清理"),
-                cross(OCEAN, "cleanOceanList", "清理好友列表", KEEP, EMPTY_SET),
+                cross(OCEAN, "cleanOceanList", "清理好友列表", KEEP, KEEP),
                 cross(OCEAN, "userprotectType", "保护类型（面向他人海域）", NONE, NONE),
                 cross(OCEAN, "protectOceanList", "保护海域列表", KEEP, EMPTY_MAP),
                 self(OCEAN, "dailyOceanTask", "海洋任务", ON, ON),
@@ -360,22 +361,22 @@ object AccountPresetPolicy {
             listOf(
                 cross(STALL, "stallAutoOpen", "摆摊（进入好友村子）", ON, OFF),
                 guardedCross(STALL, "stallOpenType", "摆摊动作", NONE, 1, "stallAutoOpen", "StallOpenType：0=选中摆摊，1=选中不摆摊"),
-                cross(STALL, "stallOpenList", "摆摊好友列表", KEEP, EMPTY_SET),
+                cross(STALL, "stallOpenList", "摆摊好友列表", KEEP, KEEP),
                 cross(STALL, "stallAutoTicket", "贴罚单", ON, OFF),
                 guardedCross(STALL, "stallTicketType", "贴罚单动作", NONE, 1, "stallAutoTicket", "StallTicketType：0=选中贴罚单，1=选中不贴罚单"),
-                cross(STALL, "stallTicketList", "贴罚单好友列表", KEEP, EMPTY_SET),
+                cross(STALL, "stallTicketList", "贴罚单好友列表", KEEP, KEEP),
                 cross(STALL, "stallThrowManure", "丢肥料", OFF, OFF),
                 guardedCross(STALL, "stallThrowManureType", "丢肥料动作", 1, 1, "stallThrowManure", "StallThrowManureType：0=选中丢肥料，1=选中不丢肥料"),
-                cross(STALL, "stallThrowManureList", "丢肥料好友列表", KEEP, EMPTY_SET),
+                cross(STALL, "stallThrowManureList", "丢肥料好友列表", KEEP, KEEP),
                 cross(STALL, "stallInviteShop", "邀请好友摆摊", OFF, OFF),
                 guardedCross(STALL, "stallInviteShopType", "邀请摆摊动作", 1, 1, "stallInviteShop", "StallInviteShopType：0=选中邀请，1=选中不邀请"),
-                cross(STALL, "stallInviteShopList", "邀请摆摊好友列表", KEEP, EMPTY_SET),
+                cross(STALL, "stallInviteShopList", "邀请摆摊好友列表", KEEP, KEEP),
                 cross(STALL, "stallAllowOpenReject", "请走小摊", OFF, OFF),
-                cross(STALL, "stallWhiteList", "请走小摊白名单", KEEP, EMPTY_SET),
-                cross(STALL, "stallBlackList", "请走小摊黑名单", KEEP, EMPTY_SET),
+                cross(STALL, "stallWhiteList", "请走小摊白名单", KEEP, KEEP),
+                cross(STALL, "stallBlackList", "请走小摊黑名单", KEEP, KEEP),
                 cross(STALL, "stallInviteRegister", "邀请好友开通新村", OFF, OFF),
-                cross(STALL, "stallInviteRegisterList", "邀请开通好友列表", KEEP, EMPTY_SET),
-                cross(STALL, "assistFriendList", "助力好友列表", KEEP, EMPTY_SET),
+                cross(STALL, "stallInviteRegisterList", "邀请开通好友列表", KEEP, KEEP),
+                cross(STALL, "assistFriendList", "助力好友列表", KEEP, KEEP),
                 self(STALL, "stallAutoClose", "收摊", ON, OFF),
                 self(STALL, "stallSelfOpenTime", "收摊摆摊时长", KEEP, KEEP),
                 self(STALL, "stallAllowOpenTime", "请走小摊允许时长", KEEP, KEEP),
@@ -391,8 +392,8 @@ object AccountPresetPolicy {
             listOf(
                 cross(DODO, "collectToFriend", "帮好友抽卡", ON, OFF),
                 guardedCross(DODO, "collectToFriendType", "帮抽卡动作", NONE, 1, "collectToFriend", "CollectToFriendType：0=选中帮抽卡，1=选中不帮抽卡"),
-                cross(DODO, "collectToFriendList", "帮抽卡好友列表", KEEP, EMPTY_SET),
-                cross(DODO, "sendFriendCard", "送卡片好友列表", KEEP, EMPTY_SET),
+                cross(DODO, "collectToFriendList", "帮抽卡好友列表", KEEP, KEEP),
+                cross(DODO, "sendFriendCard", "送卡片好友列表", KEEP, KEEP),
                 self(DODO, "usepropGroup", "使用道具类型", KEEP, KEEP),
                 self(DODO, "usePropUNIVERSALCARDType", "万能卡使用方式", KEEP, KEEP),
                 self(DODO, "autoGenerateBook", "自动合成图鉴", ON, ON),
@@ -442,7 +443,7 @@ object AccountPresetPolicy {
         // ============================================================== 蚂蚁农场
         addAll(
             listOf(
-                cross(ORCHARD, "assistFriendList", "助力好友列表", KEEP, EMPTY_SET),
+                cross(ORCHARD, "assistFriendList", "助力好友列表", KEEP, KEEP),
                 self(ORCHARD, "plantMode", "种植模式", KEEP, KEEP),
                 self(ORCHARD, "executeInterval", "执行间隔", KEEP, KEEP),
                 self(ORCHARD, "receiveSevenDayGift", "收取七日礼包", ON, ON),
@@ -457,7 +458,7 @@ object AccountPresetPolicy {
             listOf(
                 cross(SPORTS, "battleForFriends", "抢好友", ON, OFF),
                 guardedCross(SPORTS, "battleForFriendType", "抢好友动作", NONE, 1, "battleForFriends", "BattleForFriendType：0=选中抢，1=选中不抢"),
-                cross(SPORTS, "originBossIdList", "抢好友列表", KEEP, EMPTY_SET),
+                cross(SPORTS, "originBossIdList", "抢好友列表", KEEP, KEEP),
                 cross(SPORTS, "trainFriend", "训练好友", ON, OFF),
                 self(SPORTS, "walk", "行走路线", ON, ON),
                 self(SPORTS, "walkPathTheme", "行走路线主题", KEEP, KEEP),
@@ -557,36 +558,67 @@ object AccountPresetPolicy {
         is String -> value.isEmpty()
         is Collection<*> -> value.isEmpty()
         is Map<*, *> -> value.isEmpty()
-        // 小号档把「不收能量」等排除名单写成大号名单，正是隔离所要的取值
-        WriteMainAccountList -> true
         else -> false
     }
 
     /**
-     * 隔离自检：返回**违反小号隔离约束**的跨账号设置项。
+     * 纯参数行：数值本身不指定任何账号，但**不是"0 即关闭"型** —— 设 0 会破坏功能
+     * （浇水克数的合法值只有 10/18/33/66，0 会让浇水失效）。
+     * 这类行两档都必须「不覆盖」，例外在此显式登记，并由单测保证它们确实是 KEEP。
+     */
+    val PLAIN_PARAM_ROWS: Set<String> = setOf("AntForest.waterFriendCount")
+
+    /** 某个字段 code 是否属于「好友名单」（名单类规则与开关类相反） */
+    private fun isFriendList(modelCode: String, fieldCode: String): Boolean =
+        AccountFriendListPolicy.byId("$modelCode.$fieldCode") != null
+
+    /**
+     * 隔离自检（**开关类**）：返回违反小号隔离约束的跨账号设置项。
      *
-     * 合规的跨账号行必须满足其一：
-     * 1. `altValue` 是中性值（不可为 [KEEP]——不覆盖会把账号原有配置留在小号上）；
+     * 合规的开关类跨账号行必须满足其一：
+     * 1. `altValue` 是中性值（不可为 [KEEP]——开关是"阻止行为"的最后一层，
+     *    保留账号原值就等于没有隔离）；
      * 2. `altValue` 虽是「动作选择器」下标，但有 [PresetField.altGuardField] 指向的配套开关，
-     *    且该开关在小号档位确实被关闭（此时选择器取什么值都不会产生实际动作）。
+     *    且该开关在小号档位确实被关闭。
      *
+     * 好友名单类不适用本规则（它们的规则相反，见 [listRowsNotKeep]）；
+     * [PLAIN_PARAM_ROWS] 里登记的纯参数也一并豁免。
      * 单测断言本列表恒为空。
      */
     fun altViolations(): List<PresetField> {
         val byKey = FIELDS.associateBy { it.modelCode to it.fieldCode }
-        return CROSS_ACCOUNT_FIELDS.filter { field ->
-            val alt = field.altValue
-            if (alt === KEEP) {
-                true
-            } else if (isNeutralValue(alt)) {
-                false
-            } else {
-                val guardCode = field.altGuardField ?: return@filter true
-                val guard = byKey[field.modelCode to guardCode] ?: return@filter true
-                guard.scope != FieldScope.CROSS_ACCOUNT || !isNeutralValue(guard.altValue)
+        return CROSS_ACCOUNT_FIELDS
+            .filterNot { isFriendList(it.modelCode, it.fieldCode) || it.id in PLAIN_PARAM_ROWS }
+            .filter { field ->
+                val alt = field.altValue
+                if (alt === KEEP) {
+                    true
+                } else if (isNeutralValue(alt)) {
+                    false
+                } else {
+                    val guardCode = field.altGuardField ?: return@filter true
+                    val guard = byKey[field.modelCode to guardCode] ?: return@filter true
+                    guard.scope != FieldScope.CROSS_ACCOUNT || !isNeutralValue(guard.altValue)
+                }
             }
-        }
     }
+
+    /**
+     * 隔离自检（**名单类**）：好友名单字段在静态表里必须一律 [KEEP]。
+     *
+     * 名单**只由二级页的勾选驱动**。若静态表也写它，会出现两个后果：
+     * 1. 与「没勾就不动」的语义矛盾 —— 未勾选的名单会被静默清空；
+     * 2. 与勾选机制打架 —— 用户取消勾选后，静态表写的值仍会留下（取消无效）。
+     *
+     * 行为层的隔离不依赖名单，而是由开关承担（小号档 `collectEnergy = false`，
+     * 即使名单里有人也一颗能量都收不到）。单测断言本列表恒为空。
+     */
+    fun listRowsNotKeep(): List<String> =
+        FRIEND_LIST_ROWS.filter { it.mainValue !== KEEP || it.altValue !== KEEP }.map { it.id }
+
+    /** 静态表里登记为好友名单的那些行 */
+    val FRIEND_LIST_ROWS: List<PresetField> =
+        FIELDS.filter { isFriendList(it.modelCode, it.fieldCode) }
 
     /** 隔离自检：`altGuardField` 是否都指向了表中真实存在的行 */
     fun brokenGuards(): List<String> {

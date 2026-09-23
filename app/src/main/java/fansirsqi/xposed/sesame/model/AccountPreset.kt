@@ -212,16 +212,9 @@ object AccountPreset {
             }
 
             // 2. 静态档位表（基线：开关类 / 固定取值）
+            //    好友名单类行在表里一律是 KEEP，不会出现在这里 —— 它们只由第 4 步的勾选驱动。
             for (row in AccountPresetPolicy.overridesFor(tier)) {
-                val raw = row.valueFor(tier)
-                if (raw === WriteMainAccountList) {
-                    // 由「大号名单」驱动：未指定大号就保持账号现状
-                    if (mainList.isNotEmpty()) {
-                        if (write(row.modelCode, row.fieldCode, mainList)) appliedCount++
-                    }
-                    continue
-                }
-                if (write(row.modelCode, row.fieldCode, raw)) appliedCount++
+                if (write(row.modelCode, row.fieldCode, row.valueFor(tier))) appliedCount++
             }
 
             // 3. 关系名单本身落盘，供下次复用

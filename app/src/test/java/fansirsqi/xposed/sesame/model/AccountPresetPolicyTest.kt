@@ -41,11 +41,59 @@ class AccountPresetPolicyTest {
     }
 
     @Test
-    fun `每一条跨账号设置项都显式声明了小号取值`() {
-        val missing = AccountPresetPolicy.CROSS_ACCOUNT_FIELDS
+    fun `开关类跨账号项必须显式声明小号取值，名单类必须「不覆盖」`() {
+        val listIds = AccountPresetPolicy.FRIEND_LIST_ROWS.map { it.id }.toSet()
+
+        // 开关类：不允许「不覆盖」——开关是阻止行为的最后一层
+        val switchesMissing = AccountPresetPolicy.CROSS_ACCOUNT_FIELDS
+            .filterNot { it.id in listIds || it.id in AccountPresetPolicy.PLAIN_PARAM_ROWS }
             .filter { it.altValue === AccountPresetPolicy.KEEP }
-            .map { "${it.modelCode}.${it.fieldCode}" }
-        assertTrue("以下跨账号设置项的小号取值是「不覆盖」，小号会保留账号原有配置：$missing", missing.isEmpty())
+            .map { it.id }
+        assertTrue(
+            "以下开关类跨账号项的小号取值是「不覆盖」，小号会保留账号原有配置：$switchesMissing",
+            switchesMissing.isEmpty(),
+        )
+
+        // 名单类：必须「不覆盖」——名单只由勾选驱动，档位不得改写
+        val listNotKeep = AccountPresetPolicy.FRIEND_LIST_ROWS
+            .filter { it.altValue !== AccountPresetPolicy.KEEP }
+            .map { it.id }
+        assertTrue(
+            "以下名单类项的小号取值不是「不覆盖」，会静默清空或覆盖用户已配的名单：$listNotKeep",
+            listNotKeep.isEmpty(),
+        )
+
+        // 纯参数例外必须真的「不覆盖」，否则等于参数被档位改坏
+        val paramNotKeep = AccountPresetPolicy.PLAIN_PARAM_ROWS.filter { id ->
+            AccountPresetPolicy.FIELDS.firstOrNull { it.id == id }?.altValue !== AccountPresetPolicy.KEEP
+        }
+        assertTrue("以下纯参数行不是「不覆盖」：$paramNotKeep", paramNotKeep.isEmpty())
+    }
+
+    @Test
+    fun `好友名单类行在静态表里一律不覆盖`() {
+        // 名单只由二级页的勾选驱动。若静态表也写它，会造成两个后果：
+        //   1. 与「没勾就不动」矛盾 —— 未勾选的名单被静默清空；
+        //   2. 与勾选机制打架 —— 用户取消勾选后静态表写的值仍留下（取消无效）。
+        val bad = AccountPresetPolicy.listRowsNotKeep()
+        assertTrue("以下好友名单行在静态表里不是「不覆盖」：$bad", bad.isEmpty())
+        assertEquals(
+            "静态表应当登记全部 26 个好友名单字段",
+            26,
+            AccountPresetPolicy.FRIEND_LIST_ROWS.size,
+        )
+    }
+
+    @Test
+    fun `小号不偷大号由开关兜底而不是靠写名单`() {
+        // 名单不再由档位自动写，所以「小号不偷大号」必须由开关层保证
+        assertEquals(
+            "小号档必须关闭「收集能量」，这是不收任何人能量的兜底",
+            false,
+            AccountPresetPolicy.FIELDS
+                .first { it.modelCode == "AntForest" && it.fieldCode == "collectEnergy" }
+                .altValue,
+        )
     }
 
     @Test
@@ -127,16 +175,24 @@ class AccountPresetPolicyTest {
     }
 
     @Test
-    fun `小号档位关闭好友能量收取且清空好友名单`() {
+    fun `小号档关掉收取类开关，但名单交给勾选驱动`() {
         fun altValueOf(model: String, field: String): Any? =
             AccountPresetPolicy.FIELDS.first { it.modelCode == model && it.fieldCode == field }.altValue
 
+        // 开关层：必须真的关掉（这是"不偷任何人"的兜底）
         assertEquals(false as Any?, altValueOf("AntForest", "collectEnergy"))
         assertEquals(false as Any?, altValueOf("AntForest", "batchRobEnergy"))
         assertEquals(false as Any?, altValueOf("AntForest", "pkEnergy"))
-        assertEquals(emptyMap<String, Int>() as Any?, altValueOf("AntForest", "waterFriendList"))
-        assertEquals(emptySet<String>() as Any?, altValueOf("AntForest", "helpFriendCollectList"))
+
+        // 名单层：不再由档位写 —— 由二级页勾选决定；没勾就保持账号现状
+        assertEquals(AccountPresetPolicy.KEEP, altValueOf("AntForest", "waterFriendList"))
+        assertEquals(AccountPresetPolicy.KEEP, altValueOf("AntForest", "helpFriendCollectList"))
+        assertEquals(AccountPresetPolicy.KEEP, altValueOf("AntForest", "dontCollectList"))
+
+        // "0 = 关闭"型的数值参数仍随档位关闭
         assertEquals(0 as Any?, altValueOf("AntForest", "returnWater10"))
+        // 而"0 会破坏功能"的纯参数不动
+        assertEquals(AccountPresetPolicy.KEEP, altValueOf("AntForest", "waterFriendCount"))
     }
 
     @Test
@@ -163,7 +219,6 @@ class AccountPresetPolicyTest {
         assertTrue(AccountPresetPolicy.isNeutralValue(emptySet<String>()))
         assertTrue(AccountPresetPolicy.isNeutralValue(emptyMap<String, Int>()))
         assertTrue(AccountPresetPolicy.isNeutralValue(""))
-        assertTrue(AccountPresetPolicy.isNeutralValue(WriteMainAccountList))
 
         assertFalse(AccountPresetPolicy.isNeutralValue(true))
         assertFalse(AccountPresetPolicy.isNeutralValue(1))
