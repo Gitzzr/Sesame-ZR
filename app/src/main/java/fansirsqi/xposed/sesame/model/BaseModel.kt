@@ -1,20 +1,17 @@
 package fansirsqi.xposed.sesame.model
 
 import fansirsqi.xposed.sesame.BuildConfig
-import fansirsqi.xposed.sesame.entity.AlipayUser
 import fansirsqi.xposed.sesame.model.modelFieldExt.BooleanModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.ChoiceModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.IntegerModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.IntegerModelField.MultiplyIntegerModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.ListModelField.ListJoinCommaToStringModelField
-import fansirsqi.xposed.sesame.model.modelFieldExt.SelectModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.StringModelField
 import fansirsqi.xposed.sesame.util.ListUtil
 import fansirsqi.xposed.sesame.util.Log
 import fansirsqi.xposed.sesame.util.maps.BeachMap
 import fansirsqi.xposed.sesame.util.maps.IdMapManager
 import lombok.Getter
-import java.util.LinkedHashSet
 
 /**
  * 基础配置模块
@@ -52,10 +49,6 @@ class BaseModel : Model() {
         modelFields.addField(errNotify) //异常通知开关
         modelFields.addField(setMaxErrorCount) //异常次数阈值
         modelFields.addField(newRpc) //是否启用新接口
-
-        // 账号关系名单：供「账号档位」一键套用到各功能的好友列表
-        modelFields.addField(mainAccountList) //大号名单
-        modelFields.addField(subAccountList) //小号名单
 
         if (BuildConfig.DEBUG) {
             modelFields.addField(debugMode) //是否开启抓包调试模式
@@ -174,35 +167,6 @@ class BaseModel : Model() {
          */
         @Getter
         val newRpc: BooleanModelField = BooleanModelField("newRpc", "使用新接口(最低支持v10.3.96.8100)", true)
-
-        /**
-         * 大号名单：我认定的主号。
-         *
-         * 「账号档位」一键切换时，会把这份名单**套用到各功能的好友列表**
-         * （浇水、赠送道具、帮喂小鸡、助力…），免去逐项配置。
-         * 小号档下这份名单还会写进「不收能量」等排除名单，保证小号不去动大号。
-         */
-        @Getter
-        val mainAccountList: SelectModelField = SelectModelField(
-            "mainAccountList",
-            "大号名单 | 供各功能批量启用",
-            LinkedHashSet<String>(),
-            AlipayUser::getList
-        )
-
-        /**
-         * 小号名单：我认定的从属号。
-         *
-         * 大号档下用于**校验**：大号要收小号的能量，
-         * 因此这份名单里的账号会被从「不收能量」等排除名单中**移除**。
-         */
-        @Getter
-        val subAccountList: SelectModelField = SelectModelField(
-            "subAccountList",
-            "小号名单 | 供各功能批量启用",
-            LinkedHashSet<String>(),
-            AlipayUser::getList
-        )
 
         /**
          * 是否开启抓包调试模式

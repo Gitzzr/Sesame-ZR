@@ -80,12 +80,6 @@ object AccountFriendListPolicy {
     private const val ORCHARD = "AntOrchard"
     private const val SPORTS = "AntSports"
 
-    /** 存放关系名单的模块与字段（基础模块） */
-    const val MAIN_LIST_MODEL = BASE
-    const val MAIN_LIST_FIELD = "mainAccountList"
-    const val SUB_LIST_MODEL = BASE
-    const val SUB_LIST_FIELD = "subAccountList"
-
     private fun gate(model: String, field: String, label: String, value: Any) =
         GateSwitch(model, field, label, value)
 

@@ -53,17 +53,25 @@ object AccountPreset {
         val message: String,
     )
 
-    /** 已落盘的档位记录 */
+    /**
+     * 已落盘的档位记录。
+     *
+     * 只存"上次的勾选"——它**不是配置**，只是给下次打开流程当默认值用。
+     * 真正生效的配置是各功能自己的好友列表字段，不需要在这里再存一份成员名单。
+     */
     data class PresetRecord(
         val tier: PresetTier,
         val appliedAt: Long,
         val appliedCount: Int,
-        val protectedAccounts: List<String>,
-        /** 大号名单：每个好友各勾选了哪些功能 */
-        val mainSelection: Map<String, Set<String>> = emptyMap(),
-        /** 小号名单：每个好友各勾选了哪些功能 */
-        val subSelection: Map<String, Set<String>> = emptyMap(),
-    )
+        /** tierCode → (好友 userId → 勾选的功能 id) */
+        val selections: Map<String, Map<String, Set<String>>> = emptyMap(),
+    ) {
+        /** 取某个档位上次的勾选 */
+        fun selectionFor(t: PresetTier): Map<String, Set<String>> = selections[t.code].orEmpty()
+
+        /** 某个档位上次处理过的好友数 */
+        fun friendCount(t: PresetTier): Int = selectionFor(t).count { it.value.isNotEmpty() }
+    }
 
     // ------------------------------------------------------------------ 账号工具
 
@@ -87,32 +95,6 @@ object AccountPreset {
      */
     data class Friend(val userId: String, val name: String)
 
-    /**
-     * 直接读配置文件里「基础」模块的关系名单（大号名单 / 小号名单），**不改内存配置**。
-     *
-     * 用于下次打开切换流程时默认勾选上次的标记 —— 走 [Config.load] 会污染当前运行账号的内存配置，
-     * 只为了读一个列表不值得。
-     */
-    @JvmStatic
-    fun readStoredRelationList(userId: String, fieldCode: String): Set<String> {
-        if (userId.isBlank()) return emptySet()
-        return try {
-            val file = File(Files.getUserConfigDir(userId), CONFIG_FILE)
-            if (!file.exists()) return emptySet()
-            val json = Files.readFromFile(file)
-            if (json.isBlank()) return emptySet()
-            val node = JsonUtil.toNode(json) ?: return emptySet()
-            val arr = node.path("modelFieldsMap")
-                .path(AccountFriendListPolicy.MAIN_LIST_MODEL)
-                .path(fieldCode)
-                .path("value")
-            if (!arr.isArray) return emptySet()
-            arr.mapNotNull { it.asText(null) }.filter { it.isNotBlank() }.toSet()
-        } catch (t: Throwable) {
-            Log.printStackTrace(TAG, "读取关系名单失败", t)
-            emptySet()
-        }
-    }
 
     /**
      * 读取某账号的本地好友列表（`friend.json`）。
@@ -154,11 +136,10 @@ object AccountPreset {
     /**
      * 把 [tier] 档位应用到 [targetUid]。
      *
-     * @param context        用于发送宿主重载广播；为空时只落盘不广播
-     * @param mainList       大号名单（好友 userId）。小号档据它聚合要写入的功能名单
-     * @param subList        小号名单（好友 userId）。大号档据它清理排除名单
-     * @param mainSelection  大号名单下**每个好友各勾选了哪些功能**（friendId → 功能 id）
-     * @param subSelection   小号名单下每个好友各勾选了哪些功能
+     * @param context   用于发送宿主重载广播；为空时只落盘不广播
+     * @param selection **本次要处理的好友各自勾选了哪些功能**（friendId → 功能 id）。
+     *                  值为空集合的好友视为"不处理"。各功能名单的最终取值由它聚合得出 ——
+     *                  没有独立的"成员名单"概念，也就不会有名单与勾选不一致的问题。
      */
     @JvmStatic
     @Synchronized
@@ -166,10 +147,7 @@ object AccountPreset {
         tier: PresetTier,
         targetUid: String,
         context: Context? = null,
-        mainList: Set<String> = emptySet(),
-        subList: Set<String> = emptySet(),
-        mainSelection: Map<String, Set<String>> = emptyMap(),
-        subSelection: Map<String, Set<String>> = emptyMap(),
+        selection: Map<String, Set<String>> = emptyMap(),
     ): ApplyResult {
         if (targetUid.isBlank()) {
             return ApplyResult(tier, targetUid, 0, emptyList(), emptyList(), emptyList(), false, "无效的账号 ID")
@@ -217,15 +195,9 @@ object AccountPreset {
                 if (write(row.modelCode, row.fieldCode, row.valueFor(tier))) appliedCount++
             }
 
-            // 3. 关系名单本身落盘，供下次复用
-            write(AccountFriendListPolicy.MAIN_LIST_MODEL, AccountFriendListPolicy.MAIN_LIST_FIELD, mainList)
-            write(AccountFriendListPolicy.SUB_LIST_MODEL, AccountFriendListPolicy.SUB_LIST_FIELD, subList)
-
-            // 4. 按好友的勾选聚合写入功能名单（覆盖第 2 步的基线；未勾选的保持基线）
+            // 3. 按好友的勾选聚合写入功能名单（未勾选的功能一概不动）
             val isMainTier = tier == PresetTier.MAIN
-            val activeList = if (isMainTier) subList else mainList
-            val activeSelection = if (isMainTier) subSelection else mainSelection
-            for ((featureId, friends) in aggregateSelection(activeList, activeSelection)) {
+            for ((featureId, friends) in aggregateSelection(selection)) {
                 val ref = AccountFriendListPolicy.byId(featureId)
                 if (ref == null) {
                     skipped += featureId
@@ -250,8 +222,9 @@ object AccountPreset {
                 }
             }
 
-            // 5. 大号档：把小号从排除类名单里移除 —— 大号要收小号的能量
-            if (tier == PresetTier.MAIN && subList.isNotEmpty()) {
+            // 4. 大号档：把本次处理的好友从排除类名单里移除 —— 大号要收小号的能量
+            val friends = selection.filterValues { it.isNotEmpty() }.keys
+            if (tier == PresetTier.MAIN && friends.isNotEmpty()) {
                 for (ref in AccountFriendListPolicy.exclusionLists()) {
                     val f = fieldOf(ref.modelCode, ref.fieldCode) ?: run {
                         skipped += ref.id
@@ -259,7 +232,7 @@ object AccountPreset {
                     }
                     @Suppress("UNCHECKED_CAST")
                     val current = (f.value as? Set<String>) ?: continue
-                    val remain = current - subList
+                    val remain = current - friends
                     if (remain.size == current.size) continue
                     f.setObjectValue(remain)
                     appliedCount++
@@ -270,9 +243,7 @@ object AccountPreset {
             // 6. 落盘 + 通知宿主重载
             val saved = Config.save(targetUid, true)
             if (saved) {
-                writeRecord(
-                    targetUid, tier, appliedCount, mainList.toList(), mainSelection, subSelection,
-                )
+                writeRecord(targetUid, tier, appliedCount, selection)
                 broadcastRestart(context, targetUid)
             }
             val message = buildMessage(tier, targetUid, appliedCount, skipped, filledLists, purgedLists, saved)
@@ -368,16 +339,16 @@ object AccountPreset {
     /**
      * 把「每个好友各勾选了哪些功能」反转成「每个功能被哪些好友勾选」。
      *
-     * 名单字段的最终取值就是这个反转结果：同一项功能，勾选它的好友合并成一个集合写进去。
-     * 只遍历 [list] 里的好友 —— 名单外的好友即使有历史勾选也不参与。
+     * 名单字段的最终取值就是这个反转结果 —— 好友集合与功能集合都来自同一份 selection，
+     * 不存在第二个数据源，也就不会出现"名单与勾选不一致"。
      */
     private fun aggregateSelection(
-        list: Set<String>,
         selection: Map<String, Set<String>>,
     ): Map<String, Set<String>> {
         val out = linkedMapOf<String, MutableSet<String>>()
-        for (friend in list) {
-            for (featureId in selection[friend].orEmpty()) {
+        for ((friend, ids) in selection) {
+            if (friend.isBlank()) continue
+            for (featureId in ids) {
                 if (featureId.isBlank()) continue
                 out.getOrPut(featureId) { linkedSetOf() }.add(friend)
             }
@@ -415,23 +386,23 @@ object AccountPreset {
         userId: String,
         tier: PresetTier,
         appliedCount: Int,
-        protectedAccounts: List<String>,
-        mainSelection: Map<String, Set<String>>,
-        subSelection: Map<String, Set<String>>,
+        selection: Map<String, Set<String>>,
     ) {
         try {
             val file = Files.getTargetFileofUser(userId, PRESET_FILE) ?: return
+            // 两个方向的勾选都留着：本次方向用新值，另一个方向沿用上次，避免互相覆盖
+            val previous = readRecord(userId)
+            val byTier = linkedMapOf<String, Any?>()
+            for (t in PresetTier.entries) {
+                val sel = if (t == tier) selection else previous?.selectionFor(t).orEmpty()
+                byTier[t.code] = sel.mapValues { it.value.toList() }
+            }
             val data = linkedMapOf<String, Any?>(
                 "tier" to tier.code,
-                "tierLabel" to tier.label,
                 "appliedAt" to System.currentTimeMillis(),
                 "appliedCount" to appliedCount,
-                "protectedAccounts" to protectedAccounts,
-                // 逐好友的功能勾选：Set<String> 型设置项表达不了这层嵌套，只能随档位记录落盘
-                "featureSelection" to linkedMapOf(
-                    "main" to mainSelection.mapValues { it.value.toList() },
-                    "sub" to subSelection.mapValues { it.value.toList() },
-                ),
+                // 逐好友的勾选：Set<String> 型设置项表达不了这层嵌套，只能随档位记录落盘
+                "selection" to byTier,
             )
             val json = JsonUtil.formatJson(data)
             if (json != null) Files.write2File(json, file)
@@ -454,10 +425,9 @@ object AccountPreset {
                 tier = tier,
                 appliedAt = node.path("appliedAt").asLong(0L),
                 appliedCount = node.path("appliedCount").asInt(0),
-                protectedAccounts = node.path("protectedAccounts")
-                    .mapNotNull { it.asText(null) },
-                mainSelection = parseSelection(node.path("featureSelection").path("main")),
-                subSelection = parseSelection(node.path("featureSelection").path("sub")),
+                selections = PresetTier.entries.associate { t ->
+                    t.code to parseSelection(node.path("selection").path(t.code))
+                },
             )
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, "解析档位记录失败", t)

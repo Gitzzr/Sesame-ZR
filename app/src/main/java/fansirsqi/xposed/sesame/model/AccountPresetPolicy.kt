@@ -174,9 +174,6 @@ object AccountPresetPolicy {
                 self(BASE, "enableOnGoing", "开启状态栏禁删", KEEP, KEEP),
                 self(BASE, "sendHookData", "启用 Hook 数据转发", KEEP, KEEP),
                 self(BASE, "sendHookDataUrl", "Hook 数据转发地址", KEEP, KEEP),
-                // 账号关系名单：取值由用户在切换流程里当场选择，不走静态表，故两档都是「不覆盖」。
-                self(BASE, "mainAccountList", "大号名单（供各功能批量启用）", KEEP, KEEP),
-                self(BASE, "subAccountList", "小号名单（供各功能批量启用）", KEEP, KEEP),
             )
         )
 
