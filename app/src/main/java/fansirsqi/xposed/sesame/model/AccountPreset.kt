@@ -2,6 +2,7 @@ package fansirsqi.xposed.sesame.model
 
 import android.content.Context
 import android.content.Intent
+import com.fasterxml.jackson.databind.JsonNode
 import fansirsqi.xposed.sesame.data.Config
 import fansirsqi.xposed.sesame.util.FansirsqiUtil
 import fansirsqi.xposed.sesame.util.Files
@@ -58,6 +59,10 @@ object AccountPreset {
         val appliedAt: Long,
         val appliedCount: Int,
         val protectedAccounts: List<String>,
+        /** 大号名单：每个好友各勾选了哪些功能 */
+        val mainSelection: Map<String, Set<String>> = emptyMap(),
+        /** 小号名单：每个好友各勾选了哪些功能 */
+        val subSelection: Map<String, Set<String>> = emptyMap(),
     )
 
     // ------------------------------------------------------------------ 账号工具
@@ -149,9 +154,11 @@ object AccountPreset {
     /**
      * 把 [tier] 档位应用到 [targetUid]。
      *
-     * @param context  用于发送宿主重载广播；为空时只落盘不广播
-     * @param mainList 大号名单（好友 userId）。小号档据此收窄各功能名单；为空表示未指定。
-     * @param subList  小号名单（好友 userId）。大号档据此清理排除名单；为空表示未指定。
+     * @param context        用于发送宿主重载广播；为空时只落盘不广播
+     * @param mainList       大号名单（好友 userId）。小号档据它聚合要写入的功能名单
+     * @param subList        小号名单（好友 userId）。大号档据它清理排除名单
+     * @param mainSelection  大号名单下**每个好友各勾选了哪些功能**（friendId → 功能 id）
+     * @param subSelection   小号名单下每个好友各勾选了哪些功能
      */
     @JvmStatic
     @Synchronized
@@ -161,6 +168,8 @@ object AccountPreset {
         context: Context? = null,
         mainList: Set<String> = emptySet(),
         subList: Set<String> = emptySet(),
+        mainSelection: Map<String, Set<String>> = emptyMap(),
+        subSelection: Map<String, Set<String>> = emptyMap(),
     ): ApplyResult {
         if (targetUid.isBlank()) {
             return ApplyResult(tier, targetUid, 0, emptyList(), emptyList(), emptyList(), false, "无效的账号 ID")
@@ -202,7 +211,7 @@ object AccountPreset {
                 return true
             }
 
-            // 2. 静态档位表（开关类 / 固定取值）
+            // 2. 静态档位表（基线：开关类 / 固定取值）
             for (row in AccountPresetPolicy.overridesFor(tier)) {
                 val raw = row.valueFor(tier)
                 if (raw === WriteMainAccountList) {
@@ -219,36 +228,40 @@ object AccountPreset {
             write(AccountFriendListPolicy.MAIN_LIST_MODEL, AccountFriendListPolicy.MAIN_LIST_FIELD, mainList)
             write(AccountFriendListPolicy.SUB_LIST_MODEL, AccountFriendListPolicy.SUB_LIST_FIELD, subList)
 
-            // 4. 小号档：白名单制 —— 开开关 + 把各功能名单收窄到「大号名单」
-            if (tier == PresetTier.ALT && mainList.isNotEmpty()) {
-                for (sw in AccountFriendListPolicy.ALT_WHITELIST_SWITCHES) {
+            // 4. 按好友的勾选聚合写入功能名单（覆盖第 2 步的基线；未勾选的保持基线）
+            val isMainTier = tier == PresetTier.MAIN
+            val activeList = if (isMainTier) subList else mainList
+            val activeSelection = if (isMainTier) subSelection else mainSelection
+            for ((featureId, friends) in aggregateSelection(activeList, activeSelection)) {
+                val ref = AccountFriendListPolicy.byId(featureId)
+                if (ref == null) {
+                    skipped += featureId
+                    continue
+                }
+                if (!AccountFriendListPolicy.isSelectable(ref, !isMainTier)) {
+                    skipped += "$featureId(该方向不可选)"
+                    continue
+                }
+                // 名单填了不等于生效：连带打开门控开关
+                for (sw in ref.gateSwitches) {
                     if (write(sw.modelCode, sw.fieldCode, sw.value)) appliedCount++
                 }
-                for (ref in AccountFriendListPolicy.altListsFilledWithMain()) {
-                    val value: Any = if (ref.isCounted) {
-                        mainList.associateWith { ref.countDefault ?: 1 }
-                    } else {
-                        mainList
-                    }
-                    if (write(ref.modelCode, ref.fieldCode, value)) {
-                        appliedCount++
-                        filledLists += ref.key
-                    }
+                val value: Any = if (ref.isCounted) {
+                    friends.associateWith { ref.countDefault ?: 1 }
+                } else {
+                    friends
                 }
-                for (ref in AccountFriendListPolicy.altListsCleared()) {
-                    val value: Any = ref.countDefault?.let { emptyMap<String, Int>() } ?: emptySet<String>()
-                    if (write(ref.modelCode, ref.fieldCode, value)) {
-                        appliedCount++
-                        filledLists += "${ref.key}(清空)"
-                    }
+                if (write(ref.modelCode, ref.fieldCode, value)) {
+                    appliedCount++
+                    filledLists += ref.id
                 }
             }
 
             // 5. 大号档：把小号从排除类名单里移除 —— 大号要收小号的能量
             if (tier == PresetTier.MAIN && subList.isNotEmpty()) {
-                for (ref in AccountFriendListPolicy.mainExclusionListsToPurge()) {
+                for (ref in AccountFriendListPolicy.exclusionLists()) {
                     val f = fieldOf(ref.modelCode, ref.fieldCode) ?: run {
-                        skipped += ref.key
+                        skipped += ref.id
                         continue
                     }
                     @Suppress("UNCHECKED_CAST")
@@ -257,14 +270,16 @@ object AccountPreset {
                     if (remain.size == current.size) continue
                     f.setObjectValue(remain)
                     appliedCount++
-                    purgedLists += ref.key
+                    purgedLists += ref.id
                 }
             }
 
             // 6. 落盘 + 通知宿主重载
             val saved = Config.save(targetUid, true)
             if (saved) {
-                writeRecord(targetUid, tier, appliedCount, mainList.toList())
+                writeRecord(
+                    targetUid, tier, appliedCount, mainList.toList(), mainSelection, subSelection,
+                )
                 broadcastRestart(context, targetUid)
             }
             val message = buildMessage(tier, targetUid, appliedCount, skipped, filledLists, purgedLists, saved)
@@ -355,6 +370,42 @@ object AccountPreset {
         Log.record(TAG, "模型注册表就绪：${Model.getModelConfigMap().size} 个模型")
     }
 
+    // ------------------------------------------------------------------ 勾选聚合
+
+    /**
+     * 把「每个好友各勾选了哪些功能」反转成「每个功能被哪些好友勾选」。
+     *
+     * 名单字段的最终取值就是这个反转结果：同一项功能，勾选它的好友合并成一个集合写进去。
+     * 只遍历 [list] 里的好友 —— 名单外的好友即使有历史勾选也不参与。
+     */
+    private fun aggregateSelection(
+        list: Set<String>,
+        selection: Map<String, Set<String>>,
+    ): Map<String, Set<String>> {
+        val out = linkedMapOf<String, MutableSet<String>>()
+        for (friend in list) {
+            for (featureId in selection[friend].orEmpty()) {
+                if (featureId.isBlank()) continue
+                out.getOrPut(featureId) { linkedSetOf() }.add(friend)
+            }
+        }
+        return out
+    }
+
+    /** 解析 `featureSelection` 下的一个方向：`{好友uid: [功能id...]}` */
+    private fun parseSelection(node: JsonNode): Map<String, Set<String>> {
+        if (!node.isObject) return emptyMap()
+        val out = linkedMapOf<String, Set<String>>()
+        val it = node.fields()
+        while (it.hasNext()) {
+            val (uid, arr) = it.next()
+            if (!arr.isArray) continue
+            val ids = arr.mapNotNull { it.asText(null) }.filter { it.isNotBlank() }.toSet()
+            if (ids.isNotEmpty()) out[uid] = ids
+        }
+        return out
+    }
+
     // ------------------------------------------------------------------ 记录读写
 
     private fun recordFile(userId: String): File? {
@@ -372,6 +423,8 @@ object AccountPreset {
         tier: PresetTier,
         appliedCount: Int,
         protectedAccounts: List<String>,
+        mainSelection: Map<String, Set<String>>,
+        subSelection: Map<String, Set<String>>,
     ) {
         try {
             val file = Files.getTargetFileofUser(userId, PRESET_FILE) ?: return
@@ -381,6 +434,11 @@ object AccountPreset {
                 "appliedAt" to System.currentTimeMillis(),
                 "appliedCount" to appliedCount,
                 "protectedAccounts" to protectedAccounts,
+                // 逐好友的功能勾选：Set<String> 型设置项表达不了这层嵌套，只能随档位记录落盘
+                "featureSelection" to linkedMapOf(
+                    "main" to mainSelection.mapValues { it.value.toList() },
+                    "sub" to subSelection.mapValues { it.value.toList() },
+                ),
             )
             val json = JsonUtil.formatJson(data)
             if (json != null) Files.write2File(json, file)
@@ -405,6 +463,8 @@ object AccountPreset {
                 appliedCount = node.path("appliedCount").asInt(0),
                 protectedAccounts = node.path("protectedAccounts")
                     .mapNotNull { it.asText(null) },
+                mainSelection = parseSelection(node.path("featureSelection").path("main")),
+                subSelection = parseSelection(node.path("featureSelection").path("sub")),
             )
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, "解析档位记录失败", t)
