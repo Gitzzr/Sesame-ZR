@@ -85,6 +85,34 @@ class AccountPresetPolicyTest {
     }
 
     @Test
+    fun `好友名单在两张策略表之间登记一致`() {
+        // R11：好友名单同时登记在 AccountFriendListPolicy.FRIEND_LISTS（功能视角）
+        // 与 AccountPresetPolicy.FIELDS（档位视角），两处必须对得上。
+
+        val missing = AccountFriendListPolicy.FRIEND_LISTS
+            .filter { ref -> AccountPresetPolicy.FIELDS.none { it.id == ref.id } }
+            .map { it.id }
+        assertTrue("以下好友名单在预设表 FIELDS 里没有对应行：$missing", missing.isEmpty())
+
+        val notCross = AccountFriendListPolicy.FRIEND_LISTS
+            .filter { ref ->
+                AccountPresetPolicy.FIELDS
+                    .firstOrNull { it.id == ref.id }?.scope != FieldScope.CROSS_ACCOUNT
+            }
+            .map { it.id }
+        assertTrue(
+            "以下好友名单未登记为跨账号，小号隔离保证会失效：$notCross",
+            notCross.isEmpty(),
+        )
+
+        assertEquals(
+            "两张表的名单数量应当一致",
+            AccountFriendListPolicy.FRIEND_LISTS.size,
+            AccountPresetPolicy.FRIEND_LIST_ROWS.size,
+        )
+    }
+
+    @Test
     fun `小号不偷大号由开关兜底而不是靠写名单`() {
         // 名单不再由档位自动写，所以「小号不偷大号」必须由开关层保证
         assertEquals(
@@ -115,6 +143,34 @@ class AccountPresetPolicyTest {
     @Test
     fun `预设表没有重复登记`() {
         assertEquals("重复登记：${AccountPresetPolicy.duplicateEntries()}", emptyList<String>(), AccountPresetPolicy.duplicateEntries())
+    }
+
+    @Test
+    fun `预设表规模锁定，改表必须同步文档口径`() {
+        // 这条不是为了"证明"规模，而是为了让**改表这件事有摩擦**：
+        // docs/superpowers/{specs,plans} 里写过 FIELDS 的规模口径，
+        // 曾经因为删掉两行没回头改文档而失真（302/286/80 → 300/284/79）。
+        // 增删预设表行时这条会红，提醒同步文档。
+        assertEquals(
+            "模块开关数应为 ModelOrder 注册的 16 个模型",
+            16,
+            AccountPresetPolicy.FIELDS.count { it.fieldCode == "enable" },
+        )
+        assertEquals(
+            "FIELDS 规模变化了 —— 请同步 docs/superpowers/{specs,plans} 里的规模口径",
+            300,
+            AccountPresetPolicy.FIELDS.size,
+        )
+        assertEquals(
+            "设置项数（除模块开关）变化了 —— 同上",
+            284,
+            AccountPresetPolicy.FIELDS.count { it.fieldCode != "enable" },
+        )
+        assertEquals(
+            "跨账号行数变化了 —— 同上",
+            79,
+            AccountPresetPolicy.CROSS_ACCOUNT_FIELDS.size,
+        )
     }
 
     @Test
