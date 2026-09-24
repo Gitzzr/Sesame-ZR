@@ -6,14 +6,14 @@ This file provides guidance to CodeBuddy Code when working with code in this rep
 
 本仓库已经建立了完整的文档体系，**不要在开发过程中从零重新探索**：
 
-1. **[`AGENTS.md`](AGENTS.md)** —— AI 进入本项目首先需要知道的信息：8 条硬规则、环境现状、**已知阻塞（测试当前编译失败）**、常用命令、代码地图。
-2. **[`TODO.md`](TODO.md)** —— 当前任务与优先级。P0 是必须先解决的两件事。
+1. **[`AGENTS.md`](AGENTS.md)** —— AI 进入本项目首先需要知道的信息：8 条硬规则、环境现状、**未完成功能（抽抽乐调度策略）**、常用命令、代码地图。
+2. **[`TODO.md`](TODO.md)** —— 当前任务与优先级。P0 两条都已有结论：P0-2 环境搭建已完成、P0-1 编译阻塞已解但功能仍未实现。
 
 ## 文档体系
 
 | 文档 | 内容 |
 | --- | --- |
-| [`AGENTS.md`](AGENTS.md) | AI 入口：硬规则、环境、已知阻塞、代码地图 |
+| [`AGENTS.md`](AGENTS.md) | AI 入口：硬规则、环境、未完成功能、代码地图 |
 | [`TODO.md`](TODO.md) | 任务、优先级、进度（P0 阻塞 / P1 待验 / P2 缺陷） |
 | [`DESIGN.md`](DESIGN.md) | 视觉规则：Compose 主题 / XML 资源 / Web 页面三套体系 |
 | [`docs/project-overview.md`](docs/project-overview.md) | 项目定位、技术栈、能力范围、目录结构、发布形态 |
@@ -27,7 +27,7 @@ This file provides guidance to CodeBuddy Code when working with code in this rep
 ## 三条最容易踩的
 
 1. **主干是 `main`，且只有这一条长期分支**（GitHub Flow）：特性分支 → PR → Squash merge。CI 只认 `main`，禁止直推。
-2. **单元测试目前编译不过** —— `ChouChouLeSchedulePolicyTest.kt` 引用了不存在的 `ChouChouLeScheduleAction` / `ChouChouLeSchedulePolicy`。见 `TODO.md` P0-1。
+2. **抽抽乐调度策略是个半成品，不是「测试坏了」** —— `app/src/test/java/fansirsqi/xposed/sesame/task/antFarm/ChouChouLeSchedulePolicyTest.kt` 引用的 `ChouChouLeScheduleAction` / `ChouChouLeSchedulePolicy` **在主源码中不存在**，该测试已用 `@Ignore` 跳过、断言注释保留成契约。**`./gradlew :app:testDebugUnitTest` 是可编译、可执行的**（该用例显示为 skipped），别看到 `@Ignore` 就以为测试任务挂了。要补实现得先定调度语义，见 `TODO.md` P0-1。
 3. **很多单测是「读源码文本做断言」**（`File("src/main/...")`）—— 必须经 Gradle 跑（工作目录是 `app/`），且**重命名标识符会打挂它们**。
 
 其余一切（构建命令、环境要求、架构、约定）以 `AGENTS.md` 与 `docs/` 为准。
