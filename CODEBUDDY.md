@@ -14,7 +14,7 @@ This file provides guidance to CodeBuddy Code when working with code in this rep
 | 文档 | 内容 |
 | --- | --- |
 | [`AGENTS.md`](AGENTS.md) | AI 入口：硬规则、环境、未完成功能、代码地图 |
-| [`TODO.md`](TODO.md) | 任务、优先级、进度（P0 阻塞 / P1 待验 / P2 缺陷） |
+| [`TODO.md`](TODO.md) | 任务、优先级、进度（P0 已解除 / P1 待验 / P2 缺陷） |
 | [`DESIGN.md`](DESIGN.md) | 视觉规则：Compose 主题 / XML 资源 / Web 页面三套体系 |
 | [`docs/project-overview.md`](docs/project-overview.md) | 项目定位、技术栈、能力范围、目录结构、发布形态 |
 | [`docs/architecture.md`](docs/architecture.md) | 架构与数据流：注入链路、RPC 链路、任务调度、配置同步 |
