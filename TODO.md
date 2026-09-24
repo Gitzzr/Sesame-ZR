@@ -2,13 +2,15 @@
 
 > 当前任务、优先级与开发进度。
 >
-> **状态来源说明**：本文件的进度不是凭印象写的，是从仓库内的三份实施计划（`docs/superpowers/plans/`）逐条提取的勾选状态。其中 `2026-09-05-verification-and-log-errors.md` 的结构特殊 —— 文件上半部「实施记录」是真实结果，下半部「第一阶段 / 第二阶段」是**原始计划清单且未回填勾选**（文件第 34 行明确写了「以下为原计划及验收清单，实施结果以本节为准」）。本文件一律以「实施记录」为准。
+> **状态来源说明**：本文件的进度不是凭印象写的，是从仓库内的六份实施计划（`docs/superpowers/plans/`）逐条提取的勾选状态。其中 `2026-09-05-verification-and-log-errors.md` 的结构特殊 —— 文件上半部「实施记录」是真实结果，下半部「第一阶段 / 第二阶段」是**原始计划清单且未回填勾选**（文件第 34 行明确写了「以下为原计划及验收清单，实施结果以本节为准」）。本文件一律以「实施记录」为准。
 >
-> 最近更新：2026-09-21
+> ⚠️ **`2026-09-21-verification-pause-stuck.md` 同样存在勾选未回填**（实为 **3 勾 / 10 未勾**）：其中 2 条单测项已有用例覆盖（1009 判定、TTL 过期，见 `VerificationPausePolicyTest`，方法名已收敛为 `isMarkExpired` / `restoreActionFor`，故按计划里的旧名搜不到）；另 2 条（`resumeAfterManualVerification` 的令牌校验分支、无标志时的空转）在 `RequestManager.kt:198/207` **有实现但至今没有单测**；第 260 行括注的「`ChouChouLeSchedulePolicyTest.kt` 仍编译失败」也已过期。**那份计划的状态请以本文正文为准，不要只看勾选。**
+>
+> 最近更新：2026-09-24
 
 ---
 
-## 🔴 P0 · 阻塞项（不解决就没法正常开发）
+## 🔴 P0 · 原阻塞项（两条均已解除，当前无开发阻塞）
 
 ### P0-1 单元测试编译失败 —— 🟡 阻塞已解，功能仍未实现（2026-09-22）
 
@@ -26,6 +28,11 @@
 
 > ⚠️ 踩坑记录：**单加 `@Ignore` 不解决问题** —— `@Ignore` 只跳过「执行」不跳过「编译」，
 > 引用了不存在的类照样编译失败。必须同时把引用注释掉。
+
+**当前实测（2026-09-24）**：`./gradlew :app:testDebugUnitTest` → **BUILD SUCCESSFUL**，
+37 个测试文件、**223 项 / 0 失败 / 3 跳过**；本测试自己的报告为
+`tests="3" skipped="3" failures="0" errors="0"`。也就是说下面这些是**功能待办**，
+不是「测试跑不起来」—— 别把两者混为一谈。
 
 **仍未做（这才是真正的工作量）**：`ChouChouLe.kt`（640 行）里**没有任何时间/完成度调度逻辑**，
 也没有对应设置项 —— 所以 `ChouChouLeSchedulePolicy` 不是「从任务里重构抽出来的」，而是**一个没做完的新功能**。
@@ -95,6 +102,14 @@ StopExecutionException: Your project path contains non-ASCII characters.
 - [ ] 实际会员奖励是否正常到账
 - [ ] 森林 / 庄园 / 运动主流程的实际调度时长（超时已从原值改为 10 分钟）
 
+`2026-09-21` 计划（安全验证暂停卡死修复，PR #3）另有 **5 条实机未勾项**，主题相同、同样待验：
+
+- [ ] 制造一次 1009 业务拒绝，确认**不再**弹出「自动任务已暂停」
+- [ ] 真实风控场景下，通知与对话框均出现「跳过并恢复」入口，点击后自动任务恢复
+- [ ] 暂停后完全关闭支付宝再打开：30 分钟内保留暂停、超过 30 分钟自动解除
+- [ ] 单独验证 30 分钟 TTL **到期**自动解除（此前只验过「无时间戳的旧版遗留标志判为过期」这一分支，未等到真实 30 分钟）
+- [ ] 「跳过并恢复」在通知与对话框**两处**均可点击生效
+
 **实机步骤要求**（来自计划的「验证与交付」）：先暂停自动任务、人工完成验证、确认普通使用状态，随后只启用必要模块逐项恢复，并记录启动与验证时间。核对时要看**原始 1009 数量、本地阻断计数、阻断后新发请求数、保护罩实际请求数、业务成功状态** —— 不能只看调度器的「成功」计数。
 
 ### P1-2 自营项目捐蛋（缺样本，已挂起）
@@ -132,6 +147,15 @@ StopExecutionException: Your project path contains non-ASCII characters.
 - [ ] 小米 17 套用「大号推荐配置」并指定小号名单，确认小号被从「不收能量」里移除，
       且「豁免项」在大号档确实整组置灰
 - [ ] 观察一轮实际任务：小号是否真的只对大号浇水 / 送道具，且不再收大号能量
+
+### P1-5 任务执行统计落盘的实机回归
+
+设计稿与实施记录见 [`docs/superpowers/plans/2026-09-23-task-statistics.md`](docs/superpowers/plans/2026-09-23-task-statistics.md)。
+代码、单测与 CI 均已完成（PR #5），**该计划的验收清单 3 项目前全部未勾选**：
+
+- [ ] 跑完一轮任务后，确认 `config/<userId>/statistics.json` 生成且当日 `runs` 递增
+- [ ] 同一天触发第二轮，确认当日计数累加、`firstAt` 不变
+- [ ] 断网或强制停止使任务取消时，确认统计仍被写入（`NonCancellable` 生效）
 
 ---
 
@@ -186,7 +210,7 @@ StopExecutionException: Your project path contains non-ASCII characters.
 - [x] `CODEBUDDY.md` 仓库导览（2026-09-21）
 - [ ] 把 P0-1 的修复结论回填到 `docs/superpowers/plans/2026-09-05-verification-and-log-errors.md` 的「分支更正」一节
 - [x] 建立 CI 测试环节：已拆分流水线 —— `ci.yml` 跑 build + 单测（Kotlin/JVM + Web JS），`android.yml` 只管发版（2026-09-22）
-- [ ] 在 GitHub 上为 `main` 开 branch protection（禁止直推、要求 CI 绿 + review），配合已切换的 GitHub Flow
+- [x] 在 GitHub 上为 `main` 开 branch protection —— **已完成**（2026-09-24 核实）：必需检查 `build-and-test` 且 `strict: true`（分支必须先与 `main` 同步才能合入）、`allow_force_pushes=false`、`allow_deletions=false`、`enforce_admins=true`。**唯一差异**：`required_approving_review_count = 0`，即强制 review 未开（单人仓库），要开得手动指定 reviewer
 - [ ] 评估三套 UI 体系（Compose 青 / XML 蓝 / Web 橙）的配色统一 —— 属于产品决策，需单独立项，**不要顺手改**
 
 ---
@@ -198,6 +222,9 @@ StopExecutionException: Your project path contains non-ASCII characters.
 | `2026-08-01-energy-rain-verification-retry` | 能量雨安全验证只结束当前调用、不再写当天暂停标记，保留 30 秒冷却 | 6/6 步全绿 |
 | `2026-08-03-rob-expand-energy-post-collect` | 倍率卡能量：好友收取完成后复用 `updateSelfHomePage()` 复查一次阈值，达标即领取 | 7/7 步全绿（2 个 Task） |
 | `2026-09-05-verification-and-log-errors` | 验证阻断与任务停止、捐蛋响应解析兜底、保护罩去重、调度并发、会员游戏入口兼容 | 代码 10/10，实机待验 0/1 |
+| `2026-09-21-verification-pause-stuck` | 安全验证暂停卡死修复：1009 不再误判为需人工验证、暂停标志加 30 分钟 TTL、通知与支付宝首页确认框新增「跳过并恢复」、正式包接收器注册修复 | 代码已合入（PR #3，CI 全绿）。⚠️ **计划勾选未回填**：实为 3 勾 / 10 未勾 —— 2 条单测项已有用例，**2 条至今无单测**（令牌校验 / 无标志空转），实机项见 P1-1 |
+| `2026-09-23-account-preset` | 账号档位（大号 / 小号）一键切换 + 好友名单逐项功能勾选 | K50 已验，小米 17 待验，见 P1-3 / P1-4 |
+| `2026-09-23-task-statistics` | 任务执行统计结构化落盘：按账号按日累积 `statistics.json`，保留 30 天 | 代码 / 单测 / CI 全绿（PR #5 已合入），实机待验见 P1-5 |
 
 `2026-09-05` 已完成的代码侧条目（逐条摘自实施记录）：
 
@@ -223,6 +250,7 @@ StopExecutionException: Your project path contains non-ASCII characters.
 | 🟠 P1-2 | 自营项目捐蛋 | **需要用户提供抓包样本** | `AntFarm.kt` + 协议测试 |
 | 🟠 P1-3 | 账号档位（大号/小号）一键切换：K50 已验、小米17 待验 | 用户自行在小米17验证 | 无代码变更，纯验证 |
 | 🟠 P1-4 | 大号列表配置（好友名单一键套用）：K50 已验、小米17 待验 | 用户自行在小米17验证 | 无代码变更，纯验证 |
+| 🟠 P1-5 | 任务统计落盘的实机回归：`statistics.json` 生成 / 当日累加 / 取消时仍写入 | 真机 | 无代码变更，纯验证 |
 | 🟡 P2-1 | 青春特权 3000 | **需要抓包样本** | 会员模块 |
 | 🟡 P2-4 | HTTP 接口鉴权统一 | 需确认使用场景 | `hook/server/` |
 | 🟡 P2-5 | 补 `SettingsComponents.kt` 的 `package` | 无 | 1 行 |
