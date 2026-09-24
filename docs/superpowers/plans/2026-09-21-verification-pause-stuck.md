@@ -782,3 +782,55 @@ PR 原先把这个现象归因于 `RECEIVER_NOT_EXPORTED` 的导出级别问题�
 
 > 注意路径 2 的额外风险：设备上支付宝为 10.5.66（2020），已实测同类模块在其上 `RpcBridge` 为 null ——
 > 业务 hook 大概率无法工作。但**接收器注册**与业务 hook 无关，仍可用于验证本节修复。
+
+## 十一、2026-09-25 勾选口径核对与测试缺口
+
+> 本节为**追加**记录，**不回填上文任何勾选**（按 `docs/development.md` §4：`plans/` 只追加、不回头改结论）。
+> 起因：`TODO.md` 要引用本计划的状态，核对时发现勾选与实现不一致，故在此留档。
+
+### 11.1 勾选与实现的实际差异
+
+本计划现有 **3 勾 / 10 未勾**，但 10 项未勾中有一部分其实早已落地，另有一项**已被后续实现推翻**：
+
+| 未勾项 | 实际状态 |
+| --- | --- |
+| 单测：`isVerificationRequired("1009", "系统繁忙")` → false | **已完成**。`VerificationPausePolicyTest` 的「通用业务拒绝码1009不再判定为需要安全验证」「2026-09-21 实测样本仍能命中真实风控」即此语义 |
+| 单测：标志超 TTL 后 `onRpcBridgeReady()` 清除并保持 `offline=false` | **已完成，但方法名已变**：判定已抽成纯函数 `VerificationPausePolicy.isMarkExpired` / `restoreActionFor`，由「暂停标志超过保留时长后自动过期」「启动时按标志状态决定清除标志还是重建暂停」覆盖 |
+| 单测：`resumeAfterManualVerification` 在 token 不匹配时**仍清除标志并返回 true** | ⛔ **预期已被实现推翻**，见 11.2 |
+| 单测：`forceResume` 在无标志时返回 false | **未做**。启动路径的相邻语义已由 `restoreActionFor(hasMark = false) = NONE` 覆盖，但**广播路径无单测**，见 11.3 |
+| 实机 × 5（1009 不再弹暂停、两处「跳过并恢复」、重开支付宝 30 分钟 TTL、TTL 到期自动解除、两处入口点击生效） | **未做** —— 仍是本计划的主要遗留，已在 `TODO.md` P1-1 登记 |
+| 回归：`testDebugUnitTest + assembleDebug` | **已完成**。CI `build-and-test` 在每次 PR 与 main 推送都跑；2026-09-24 实测 **223 项 / 0 失败 / 3 跳过**。原文括注的「`ChouChouLeSchedulePolicyTest.kt` 仍编译失败」**已过期**（该阻塞 2026-09-22 已解，见 `TODO.md` P0-1） |
+
+### 11.2 该单测项的预期已被推翻：恢复入口最终是 fail-closed
+
+计划里写的是「token 不匹配时**仍清除标志并返回 true**」（fail-open：宁可放行也不卡死）。**最终实现选的是相反的 fail-closed**：
+
+`RequestManager.kt:237-240` —— 令牌不匹配时 `Log.record("恢复指令令牌不匹配，已忽略")` 后 `return false`，且**保留**暂停标志。
+
+理由见 `RequestManager.kt:216-221` 的注释：令牌是随机 UUID，只经通知与对话框的 `PendingIntent` 下发，外部应用无从获知；
+而接收器在 Android 12 及以下必须导出，这道校验正是挡住**伪造「跳过并恢复」广播**的关键。即便真走到该分支，
+也有 30 分钟 TTL 与启动自愈兜底，不再是「只能重装支付宝」的卡死路径。
+
+⇒ **本条不能按字面补测**：照计划原文写断言会直接得到失败用例。它记录的是当时的设计意图，
+已被后续轮次（10.4「收紧令牌校验并抽出恢复决策」）取代 —— 属**正常的设计演进**，不是漏做。
+
+### 11.3 两条剩余单测项：不是「忘了写」，而是不可直接单测
+
+`RequestManager.resumeAfterManualVerification`（`:198`）与 `forceResumeAfterVerification`（`:207`）
+都只是 `resumePausedTasks(intent, requireToken = …)` 的薄封装，而后者（`:224-256`）把**判定与副作用交织在一起**：
+从 `Intent` 取参、读 `UserMap.currentUid`、读宿主私有 SharedPreferences、`ModelTask.stopAllTaskAndJoin()`、
+`ApplicationHook.setOffline()`。本项目的单测环境承载不了它：
+
+- 测试依赖只有 `junit` 与 `org.json` —— **没有 mockk / mockito / Robolectric**；
+- `app/build.gradle.kts` 的 `testOptions` **未开** `isReturnDefaultValues`；
+- 全测试树**没有任何文件 `import android.*`** —— JVM 单测一律不碰 Android 类。
+
+⇒ 要覆盖这两条，必须先按**硬规则 5** 把广播路径的判定抽成纯函数（`restoreActionFor` 就是这么抽的，
+其 KDoc 明写「抽成纯函数，是为了让这条分支能被 JVM 单测覆盖」）。
+**「抽 Policy」是一次独立改动**（会动 `RequestManager.kt` 与策略类），不宜在文档轮次里顺手做，建议单独立项。
+
+### 11.4 本节结论
+
+- 本计划的**代码与测试均已合入 `main`**（PR #3，含 10.6 / 10.7 的后续修复）；未完成的只有**实机 5 项**。
+- 勾选未回填是历史事实，本节只作说明，**不回填勾选**。
+- 本计划的权威状态以 `TODO.md` 正文为准。
