@@ -4,7 +4,7 @@
 >
 > **状态来源说明**：本文件的进度不是凭印象写的，是从仓库内的六份实施计划（`docs/superpowers/plans/`）逐条提取的勾选状态。其中 `2026-09-05-verification-and-log-errors.md` 的结构特殊 —— 文件上半部「实施记录」是真实结果，下半部「第一阶段 / 第二阶段」是**原始计划清单且未回填勾选**（文件第 34 行明确写了「以下为原计划及验收清单，实施结果以本节为准」）。本文件一律以「实施记录」为准。
 >
-> ⚠️ **`2026-09-21-verification-pause-stuck.md` 同样存在勾选未回填**（实为 **3 勾 / 10 未勾**）：其中 2 条单测项已有用例覆盖（1009 判定、TTL 过期，见 `VerificationPausePolicyTest`，方法名已收敛为 `isMarkExpired` / `restoreActionFor`，故按计划里的旧名搜不到）；另 2 条（`resumeAfterManualVerification` 的令牌校验分支、无标志时的空转）在 `RequestManager.kt:198/207` **有实现但至今没有单测**；第 260 行括注的「`ChouChouLeSchedulePolicyTest.kt` 仍编译失败」也已过期。**那份计划的状态请以本文正文为准，不要只看勾选。**
+> ⚠️ **`2026-09-21-verification-pause-stuck.md` 同样存在勾选未回填**（实为 **3 勾 / 10 未勾**）：其中 2 条单测项已有用例覆盖（1009 判定、TTL 过期，见 `VerificationPausePolicyTest`，方法名已收敛为 `isMarkExpired` / `restoreActionFor`，故按计划里的旧名搜不到）；另 2 条（`resumeAfterManualVerification` 的令牌校验分支、无标志时的空转）在 `RequestManager.kt:198/207` **有实现但至今没有单测**，而且**不可直接单测** —— 需先按硬规则 5 把广播路径的判定抽成纯函数（本项目测试依赖只有 `junit` + `org.json`，全测试树不碰 `android.*`）；**其中「token 不匹配仍清除标志并返回 true」那一条的预期已被实现推翻** —— 最终选的是 fail-closed（`RequestManager.kt:237-240` 保留标志并返回 false），照字面补测会红。第 260 行括注的「`ChouChouLeSchedulePolicyTest.kt` 仍编译失败」也已过期。**那份计划的状态请以本文正文为准，不要只看勾选**（核对明细见该计划 §十一）。
 >
 > 最近更新：2026-09-24
 
@@ -222,7 +222,7 @@ StopExecutionException: Your project path contains non-ASCII characters.
 | `2026-08-01-energy-rain-verification-retry` | 能量雨安全验证只结束当前调用、不再写当天暂停标记，保留 30 秒冷却 | 6/6 步全绿 |
 | `2026-08-03-rob-expand-energy-post-collect` | 倍率卡能量：好友收取完成后复用 `updateSelfHomePage()` 复查一次阈值，达标即领取 | 7/7 步全绿（2 个 Task） |
 | `2026-09-05-verification-and-log-errors` | 验证阻断与任务停止、捐蛋响应解析兜底、保护罩去重、调度并发、会员游戏入口兼容 | 代码 10/10，实机待验 0/1 |
-| `2026-09-21-verification-pause-stuck` | 安全验证暂停卡死修复：1009 不再误判为需人工验证、暂停标志加 30 分钟 TTL、通知与支付宝首页确认框新增「跳过并恢复」、正式包接收器注册修复 | 代码已合入（PR #3，CI 全绿）。⚠️ **计划勾选未回填**：实为 3 勾 / 10 未勾 —— 2 条单测项已有用例，**2 条至今无单测**（令牌校验 / 无标志空转），实机项见 P1-1 |
+| `2026-09-21-verification-pause-stuck` | 安全验证暂停卡死修复：1009 不再误判为需人工验证、暂停标志加 30 分钟 TTL、通知与支付宝首页确认框新增「跳过并恢复」、正式包接收器注册修复 | 代码已合入（PR #3，CI 全绿）。⚠️ **计划勾选未回填**：实为 3 勾 / 10 未勾 —— 2 条单测项已有用例，**2 条至今无单测且不可直接单测**（令牌校验 / 无标志空转，需先抽 Policy；其中 token 校验那条的预期已被 fail-closed 实现推翻，详见该计划 §十一），实机项见 P1-1 |
 | `2026-09-23-account-preset` | 账号档位（大号 / 小号）一键切换 + 好友名单逐项功能勾选 | K50 已验，小米 17 待验，见 P1-3 / P1-4 |
 | `2026-09-23-task-statistics` | 任务执行统计结构化落盘：按账号按日累积 `statistics.json`，保留 30 天 | 代码 / 单测 / CI 全绿（PR #5 已合入），实机待验见 P1-5 |
 
