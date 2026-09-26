@@ -270,6 +270,8 @@ class AntForest : ModelTask(), EnergyCollectCallback {
 
     private var cachedBagObject: JSONObject? = null
     private var lastQueryPropListTime: Long = 0
+    // 背包查询连续失败后的退避（实测该接口被风控持续拒绝时曾 0.6 次/秒刷 40 分钟）
+    private val propQueryBackoff = PropQueryBackoffPolicy()
 
     // {{ 新增接口定义：收自己能量的方式 }}
     interface CollectSelfType {
@@ -4108,23 +4110,37 @@ class AntForest : ModelTask(), EnergyCollectCallback {
         if (!forceRefresh && cachedBagObject != null && now - lastQueryPropListTime < 5000) {
             return cachedBagObject
         }
+        if (!propQueryBackoff.canQuery(now)) {
+            // 冷却期内不再发请求：调用方会按 null 跳过需要背包的道具，收能量本身不受影响
+            return null
+        }
         try {
             Log.record(TAG, "刷新背包...")
             val response = AntForestRpcCall.queryPropList(false)
             // 检查响应是否为空，避免解析空字符串导致异常
             if (response.isNullOrBlank()) {
                 Log.record(TAG, "刷新背包失败: 响应为空")
+                propQueryBackoff.recordFailure(now)
                 return null
             }
             val bagObject = JSONObject(response)
             if (bagObject.optBoolean("success")) {
+                propQueryBackoff.recordSuccess()
                 cachedBagObject = bagObject
                 lastQueryPropListTime = now
                 return bagObject
             } else {
                 Log.record(TAG, "刷新背包失败: " + bagObject.optString("resultDesc"))
+                if (propQueryBackoff.recordFailure(now)) {
+                    Log.record(
+                        TAG,
+                        "背包查询连续失败，进入 ${PropQueryBackoffPolicy.DEFAULT_COOLDOWN_MS / 60000} 分钟退避" +
+                                "（冷却期跳过道具检查，不影响收能量）"
+                    )
+                }
             }
         } catch (th: Throwable) {
+            propQueryBackoff.recordFailure(now)
             handleException("queryPropList", th)
         }
         return null

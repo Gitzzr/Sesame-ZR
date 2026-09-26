@@ -657,8 +657,6 @@ class AntFarm : ModelTask() {
 
     override suspend fun runSuspend() {
         try {
-            // 新一轮开始：清空上一轮的道具失败记录（不落盘、不跨天）
-            toolFailureSuppress.startRound()
             val tc = TimeCounter(TAG)
             val userId = UserMap.currentUid
             Log.record(TAG, "执行开始-蚂蚁$name")
@@ -1346,9 +1344,11 @@ class AntFarm : ModelTask() {
         // 3. 使用加饭卡（仅当正在吃饭且开启配置）
         if (useBigEaterTool!!.value && AnimalFeedStatus.EATING.name == ownerAnimal.animalFeedStatus) {
             val bigEaterKey = ToolType.BIG_EATER_TOOL.name
-            if (!toolFailureSuppress.shouldAttempt(bigEaterKey)) {
-                // 本轮已经失败过：每日上限只统计成功次数，失败不计数，不拦的话会一轮内反复重试
-                Log.record("本轮加饭卡使用已失败过，跳过重试")
+            val nowMs = System.currentTimeMillis()
+            if (!toolFailureSuppress.shouldAttempt(bigEaterKey, nowMs)) {
+                // 冷却中：失败每日上限只统计成功次数、拦不住重复尝试；且失败多为请求被拒而非真的没卡
+                val remainMin = toolFailureSuppress.remainingCooldownMs(bigEaterKey, nowMs) / 60000
+                Log.record("加饭卡处于失败冷却中（剩余约${remainMin}分钟），跳过尝试")
             } else if (serverUseBigEaterTool) {
                 Log.record("服务端标记已使用加饭卡，跳过使用")
                 // 这里可选：尝试与本地计数对齐（仅在计数为0时+1，避免重复累加）
@@ -1377,8 +1377,10 @@ class AntFarm : ModelTask() {
                         // 刷新状态
                         syncAnimalStatus(ownerFarmId)
                     } else {
-                        toolFailureSuppress.markFailed(bigEaterKey)
-                        Log.record("⚠️使用道具🎭[加饭卡]失败，可能卡片不足或状态异常~（本轮不再重试）")
+                        toolFailureSuppress.markFailed(bigEaterKey, System.currentTimeMillis())
+                        // 失败原因已在 useFarmTool 内按「列表查询失败 / 道具不足 / 使用被拒」分别记录，
+                        // 这里不再断言是「卡片不足」——实测多数其实是请求被风控拒绝
+                        Log.record("⚠️使用道具🎭[加饭卡]使用失败，具体原因见上一条（已进入 30 分钟冷却）")
                     }
                 }
             }
@@ -2851,15 +2853,18 @@ class AntFarm : ModelTask() {
     }
 
     private fun useFarmTool(targetFarmId: String?, toolType: ToolType): Boolean {
+        val toolName = toolType.nickName()
         try {
             var s = AntFarmRpcCall.listFarmTool()
             var jo = JSONObject(s)
             var memo = jo.optString("memo")
             if (ResChecker.checkRes(TAG, jo)) {
                 val jaToolList = jo.getJSONArray("toolList")
+                var matchedTool = false
                 for (i in 0..<jaToolList.length()) {
                     jo = jaToolList.getJSONObject(i)
                     if (toolType.name == jo.getString("toolType")) {
+                        matchedTool = true
                         val toolCount = jo.getInt("toolCount")
                         if (toolCount > 0) {
                             if (toolType == ToolType.FENCETOOL && hasFence) {
@@ -2885,15 +2890,30 @@ class AntFarm : ModelTask() {
                                 if (toolType == ToolType.ACCELERATETOOL && resultCode == "3D16") {
                                     Status.setFlagToday("farm::accelerateLimit")
                                 }
-                                Log.record(memo)
+                                // 把真实原因写清楚：调用方此前统一记成「卡片不足」，实测多数其实是请求被拒
+                                Log.record(
+                                    TAG,
+                                    "使用道具[$toolName]被拒 | resultCode=${resultCode.ifEmpty { "-" }} | " +
+                                            jo.optString("resultDesc").ifEmpty { memo }.ifEmpty { "无描述" }
+                                )
                             }
                             Log.record(s)
+                        } else {
+                            Log.record(TAG, "道具[$toolName]数量为 0，跳过使用")
                         }
                         break
                     }
                 }
+                if (!matchedTool) {
+                    Log.record(TAG, "道具[$toolName]不在背包列表中，跳过使用")
+                }
             } else {
-                Log.record(memo)
+                // 列表查询本身失败（常见于触发安全验证）：这才是「用不了道具」的主因
+                Log.record(
+                    TAG,
+                    "道具列表查询失败，跳过使用[$toolName] | " +
+                            jo.optString("resultDesc").ifEmpty { memo }.ifEmpty { "无描述" }
+                )
                 Log.record(s)
             }
         } catch (t: Throwable) {
