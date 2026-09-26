@@ -6,6 +6,7 @@ import android.os.Looper
 import fansirsqi.xposed.sesame.model.BaseModel.Companion.showToast
 import fansirsqi.xposed.sesame.model.BaseModel.Companion.toastPerfix
 import fansirsqi.xposed.sesame.util.Log
+import fansirsqi.xposed.sesame.util.ToastThrottlePolicy
 import fansirsqi.xposed.sesame.util.ToastUtil
 
 object Toast {
@@ -15,7 +16,11 @@ object Toast {
     /**
      * 显示 Toast 消息
      *
+     * 受 [ToastThrottlePolicy] 节流：同文案 2 秒内去重、30 秒窗口内最多 6 条，
+     * 避免高频收能量时超出 Android 的按包 Toast 配额而被系统全部丢弃。
+     *
      * @param message 要显示的消息
+     * @param force 为 true 时跳过节流（用于必须让用户看到的关键提示）
      */
     @JvmOverloads
     fun show(message: String?, force: Boolean = false) {
@@ -31,6 +36,10 @@ object Toast {
             finalMessage = "$perfix:$message"
         }
         if (shouldShow) {
+            if (!force && !ToastThrottlePolicy.shared.shouldShow(System.currentTimeMillis(), finalMessage)) {
+                // 被节流的内容已由调用方（如 AntForest 的 Log.forest）记录，这里不再补日志避免新的噪声
+                return
+            }
             displayToast(context.applicationContext, finalMessage)
         }
     }

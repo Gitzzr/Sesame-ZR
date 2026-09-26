@@ -45,6 +45,10 @@ object ToastUtil {
         Log.record(TAG, "showToast::$shouldShow::$finalMessage")
 
         if (shouldShow) {
+            // 与 hook.Toast 共用节流器：系统 Toast 配额按包统计，两边必须统一限流
+            if (!ToastThrottlePolicy.shared.shouldShow(System.currentTimeMillis(), finalMessage)) {
+                return
+            }
             val toast = Toast.makeText(context, finalMessage, Toast.LENGTH_SHORT)
             // 2. 修复系统错误：Android 11 (API 30) 及以上禁止对文本 Toast 设置 Gravity
             setToastGravity(toast)
