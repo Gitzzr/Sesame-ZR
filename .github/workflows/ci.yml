@@ -31,7 +31,8 @@ jobs:
       - name: 👨🏻‍💻 Checkout
         uses: actions/checkout@v7
         with:
-          # versionCode 取自 `git rev-list --count HEAD`，必须是完整克隆（浅克隆会让版本号错）
+          # versionCode 已改为「自 2020-01-01 起的分钟数」，不再依赖提交历史，
+          # 浅克隆也不会让版本号出错。仍保留完整克隆是为了其它依赖 git 历史的步骤。
           fetch-depth: 0
           ref: ${{ github.head_ref || github.ref_name }}
 
