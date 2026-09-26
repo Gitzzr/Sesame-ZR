@@ -121,8 +121,10 @@ object Logback {
                 context = lc
                 fileNamePattern = "${logDir}bak/$logName-%d{yyyy-MM-dd}.%i.log"
                 setMaxFileSize(FileSize.valueOf("7MB")) // 还原为 50MB
-                setTotalSizeCap(FileSize.valueOf("32MB"))
-                maxHistory = 3
+                // 保留 7 天：排查问题时经常需要回溯一周，3 天不够（实测「分析最近一周」直接拿不到数据）。
+                // 配合 Log.printStackTrace 的 60 帧截断，单文件 7MB 上限下 64MB 足以覆盖 7 天。
+                setTotalSizeCap(FileSize.valueOf("64MB"))
+                maxHistory = 7
                 isCleanHistoryOnStart = true // 还原 Java 中的 setCleanHistoryOnStart(true)
                 // 必须调用 setParent
                 setParent(fileAppender)
