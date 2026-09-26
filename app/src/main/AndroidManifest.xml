@@ -62,6 +62,9 @@
             android:name=".ui.ExtendActivity"
             android:exported="false" />
         <activity
+            android:name=".ui.DailyTaskCheckActivity"
+            android:exported="false" />
+        <activity
             android:name=".ui.WebSettingsActivity"
             android:exported="false" />
         <activity

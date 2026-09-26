@@ -4,6 +4,9 @@ import fansirsqi.xposed.sesame.data.Status
 import fansirsqi.xposed.sesame.entity.AlipayUser
 import fansirsqi.xposed.sesame.extensions.JSONExtensions.toJSONArray
 import fansirsqi.xposed.sesame.model.modelFieldExt.SelectModelField
+import fansirsqi.xposed.sesame.task.DailyTaskLogPolicy
+import fansirsqi.xposed.sesame.task.DailyTaskLogRecorder
+import fansirsqi.xposed.sesame.task.RewardEntry
 import fansirsqi.xposed.sesame.task.antFarm.AntFarm.AnimalFeedStatus
 import fansirsqi.xposed.sesame.task.antFarm.AntFarm.AnimalInteractStatus
 import fansirsqi.xposed.sesame.util.GlobalThreadPools
@@ -25,6 +28,21 @@ enum class FamilyEatResponseAction {
 
 data object AntFarmFamily {
     private const val TAG = "小鸡家庭"
+
+    /** 记一次家庭奖励领取。 */
+    private fun recordFamilyReward(title: String, detail: String, success: Boolean) {
+        DailyTaskLogRecorder.recordReward(
+            UserMap.currentUid,
+            RewardEntry(
+                at = System.currentTimeMillis(),
+                module = DailyTaskLogPolicy.MODULE_FARM,
+                title = title,
+                detail = detail,
+                success = success,
+                reason = if (success) null else "领取失败"
+            )
+        )
+    }
     private const val FAMILY_WALK_DONATE_FLAG = "antFarm::familyWalkDonate"
     private const val FAMILY_EAT_RETRY_DELAY_MS = 3_000L
 
@@ -204,6 +222,9 @@ data object AntFarmFamily {
                     val receveRes = JSONObject(AntFarmRpcCall.receiveFamilyAward(rightId))
                     if (ResChecker.checkRes(TAG, receveRes)) {
                         Log.farm("家庭奖励🏆: $awardName x $count")
+                        recordFamilyReward(awardName, "x$count", true)
+                    } else {
+                        recordFamilyReward(awardName, "x$count", false)
                     }
                 }
             }
