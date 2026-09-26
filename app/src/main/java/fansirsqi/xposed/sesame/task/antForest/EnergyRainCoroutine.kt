@@ -3,6 +3,10 @@ package fansirsqi.xposed.sesame.task.antForest
 import fansirsqi.xposed.sesame.data.Status
 import fansirsqi.xposed.sesame.hook.RequestManager
 import fansirsqi.xposed.sesame.hook.Toast
+import fansirsqi.xposed.sesame.task.DailyTaskLogPolicy
+import fansirsqi.xposed.sesame.task.DailyTaskLogRecorder
+import fansirsqi.xposed.sesame.task.EnergyRainEntry
+import fansirsqi.xposed.sesame.task.GiftEntry
 import fansirsqi.xposed.sesame.util.GameTask
 import fansirsqi.xposed.sesame.util.Log
 import fansirsqi.xposed.sesame.util.ResChecker
@@ -151,11 +155,13 @@ object EnergyRainCoroutine {
                                             )
                                         }"
                                     )
+                                    recordGift(uid, true, null)
                                     randomDelay(300, 400) // 随机延迟 300-400ms
                                     granted = true
                                     break
                                 } else {
                                     Log.error(TAG, "送能量雨失败 $rainJsonObj")
+                                    recordGift(uid, false, "赠送被拒")
                                 }
                             }
                         }
@@ -262,6 +268,9 @@ object EnergyRainCoroutine {
                     val s = "收获能量雨🌧️[${sum}g]"
                     Toast.show(s)
                     Log.forest(s)
+                    recordEnergyRain(sum, true, null)
+                } else {
+                    recordEnergyRain(0, false, "结算失败")
                 }
                 randomDelay(300, 400) // 随机延迟 300-400ms
             } else {
@@ -349,6 +358,30 @@ object EnergyRainCoroutine {
             //Log.printStackTrace(TAG, "执行能量雨后续任务出错:", th)
             return false
         }
+    }
+
+    /** 记一次能量雨结算，失败不影响流程。 */
+    private fun recordEnergyRain(grams: Int, success: Boolean, reason: String?) {
+        DailyTaskLogRecorder.recordEnergyRain(
+            UserMap.currentUid,
+            EnergyRainEntry(at = System.currentTimeMillis(), grams = grams, success = success, reason = reason)
+        )
+    }
+
+    /** 记一次能量雨机会赠送，接收方为 [targetUserId]。 */
+    private fun recordGift(targetUserId: String, success: Boolean, reason: String?) {
+        DailyTaskLogRecorder.recordGift(
+            UserMap.currentUid,
+            GiftEntry(
+                at = System.currentTimeMillis(),
+                kind = DailyTaskLogPolicy.GIFT_RAIN_CHANCE,
+                targetUserId = targetUserId,
+                targetName = UserMap.getMaskName(targetUserId) ?: "",
+                amount = "1次机会",
+                success = success,
+                reason = reason
+            )
+        )
     }
 
     /**

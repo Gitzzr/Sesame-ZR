@@ -15,6 +15,7 @@ import androidx.compose.material.icons.rounded.Agriculture
 import androidx.compose.material.icons.rounded.AlignVerticalTop
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.FactCheck
 import androidx.compose.material.icons.rounded.Forest
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Settings
@@ -90,6 +91,7 @@ fun LogsContent(
         // ── 汇总 ──
         SectionLabel("汇总")
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            MenuButton(text = "今日完成", icon = Icons.Rounded.FactCheck, modifier = modifier) { onEvent(MainActivity.MainUiEvent.OpenDailyTaskCheck) }
             MenuButton(text = "全部日志", icon = Icons.Rounded.Description, modifier = modifier) { onEvent(MainActivity.MainUiEvent.OpenAllLog) }
         }
 

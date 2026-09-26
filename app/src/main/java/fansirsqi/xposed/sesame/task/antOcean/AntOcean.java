@@ -32,6 +32,9 @@ import fansirsqi.xposed.sesame.task.ModelTask;
 import fansirsqi.xposed.sesame.task.TaskStatus;
 import fansirsqi.xposed.sesame.task.antForest.AntForestRpcCall;
 import fansirsqi.xposed.sesame.util.GlobalThreadPools;
+import fansirsqi.xposed.sesame.task.DailyTaskLogPolicy;
+import fansirsqi.xposed.sesame.task.DailyTaskLogRecorder;
+import fansirsqi.xposed.sesame.task.RewardEntry;
 import fansirsqi.xposed.sesame.util.Log;
 import fansirsqi.xposed.sesame.util.maps.BeachMap;
 import fansirsqi.xposed.sesame.util.maps.IdMapManager;
@@ -45,6 +48,24 @@ import lombok.Getter;
  * @since 2023/08/01
  */
 public class AntOcean extends ModelTask {
+
+    /** 记一次海洋奖励领取，失败不影响海洋流程。static 以便潘多拉领奖等静态方法调用。 */
+    /** 今日完成核对用的开关快照，见 AntForest.dailyCheckSwitches。 */
+    public Map<String, Boolean> dailyCheckSwitches() {
+        Map<String, Boolean> switches = new LinkedHashMap<>();
+        switches.put("海洋任务奖励", dailyOceanTask != null && Boolean.TRUE.equals(dailyOceanTask.getValue()));
+        switches.put("潘多拉能量", PDL_task != null && Boolean.TRUE.equals(PDL_task.getValue()));
+        return switches;
+    }
+
+    private static void recordOceanReward(String title, String detail, boolean success, String reason) {
+        DailyTaskLogRecorder.INSTANCE.recordReward(
+                UserMap.INSTANCE.getCurrentUid(),
+                new RewardEntry(System.currentTimeMillis(), DailyTaskLogPolicy.MODULE_OCEAN,
+                        title, detail, success, reason),
+                System.currentTimeMillis()
+        );
+    }
 
     @Getter
     public enum ApplyAction {
@@ -742,9 +763,11 @@ public class AntOcean extends ModelTask {
                         JSONObject joAward = new JSONObject(AntOceanRpcCall.receiveTaskAward(sceneCode, taskType));
                         if (ResChecker.checkRes(TAG + "领取海洋任务奖励失败:", joAward)) {
                             Log.ocean("海洋奖励🌊[" + taskTitle + "]# " + awardCount + "拼图");
+                            recordOceanReward(taskTitle, awardCount + "拼图", true, null);
                             done = true;
                         } else {
                             Log.error(TAG, "海洋奖励🌊领取失败：" + joAward);
+                            recordOceanReward(taskTitle, awardCount + "拼图", false, "领取失败");
                         }
                         GlobalThreadPools.sleepCompat(500);
                     } else if (TaskStatus.TODO.name().equals(taskStatus)) {
@@ -845,7 +868,9 @@ public class AntOcean extends ModelTask {
                         int code = receiveTaskJson.getInt("code");
                         if (code == 100000000) {
                             Log.ocean("海洋奖励🌊[领取:" + taskTitle + "]获得潘多拉能量x" + awardCount);
+                            recordOceanReward(taskTitle, "潘多拉能量x" + awardCount, true, null);
                         } else {
+                            recordOceanReward(taskTitle, "潘多拉能量x" + awardCount, false, "领取失败");
                             if (receiveTaskJson.has("message")) {
                                 Log.record(TAG, "领取任务奖励失败: " + receiveTaskJson.getString("message"));
                             } else {

@@ -24,7 +24,10 @@ import fansirsqi.xposed.sesame.model.modelFieldExt.SelectAndCountModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.SelectModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.StringModelField
 import fansirsqi.xposed.sesame.task.AnswerAI.AnswerAI
+import fansirsqi.xposed.sesame.task.DailyTaskLogPolicy
+import fansirsqi.xposed.sesame.task.DailyTaskLogRecorder
 import fansirsqi.xposed.sesame.task.ModelTask
+import fansirsqi.xposed.sesame.task.RewardEntry
 import fansirsqi.xposed.sesame.task.RunnerExecutionPolicy
 import fansirsqi.xposed.sesame.task.TaskStatus
 import fansirsqi.xposed.sesame.task.antFarm.AntFarmFamily.familyClaimRewardList
@@ -62,6 +65,27 @@ import kotlin.math.min
 
 @Suppress("unused", "EnumEntryName", "EnumEntryName", "EnumEntryName", "EnumEntryName")
 class AntFarm : ModelTask() {
+    /** 记一次庄园奖励领取，失败不影响庄园流程。 */
+    /** 今日完成核对用的开关快照，见 [fansirsqi.xposed.sesame.task.antForest.AntForest.dailyCheckSwitches]。 */
+    fun dailyCheckSwitches(): Map<String, Boolean> = mapOf(
+        "庄园任务奖励" to (receiveFarmTaskAward?.value == true),
+        "家庭奖励" to (familyOptions?.value?.contains("familyClaimReward") == true)
+    )
+
+    private fun recordFarmReward(title: String, detail: String, success: Boolean, reason: String?) {
+        DailyTaskLogRecorder.recordReward(
+            UserMap.currentUid,
+            RewardEntry(
+                at = System.currentTimeMillis(),
+                module = DailyTaskLogPolicy.MODULE_FARM,
+                title = title,
+                detail = detail,
+                success = success,
+                reason = reason
+            )
+        )
+    }
+
     private var ownerFarmId: String? = null
     private var animals: Array<Animal>? = null
     private var ownerAnimal = Animal()
@@ -2505,6 +2529,7 @@ class AntFarm : ModelTask() {
                             if (ResChecker.checkRes(TAG + "领取庄园任务奖励失败:", receiveTaskAwardjo)) {
                                 add2FoodStock(awardCount)
                                 Log.farm("收取庄园任务奖励[$taskTitle] # ${awardCount}g (剩余容量: ${foodStockLimit - foodStock}g)")
+                                recordFarmReward(taskTitle, "${awardCount}g", true, null)
                                 if(foodStockAfter >= foodStockLimit){
                                     Log.farm("领取饲料后饲料[已满]" + foodStock + "g，停止后续领取")
                                     isFeedFull = true
@@ -4158,6 +4183,7 @@ class AntFarm : ModelTask() {
             val joSendBack = JSONObject(sendBackRes)
             if (ResChecker.checkRes(TAG, joSendBack)) {
                 Log.farm("NPC小鸡🤖[产出奖励领取成功]")
+                recordFarmReward("${config.nickName}产出", "$currentReward", true, null)
                 delay(2000)
                 if (!hireNpc(config)) {
                     Log.record(TAG, "NPC小鸡🤖[重雇失败，请检查状态]")
@@ -4192,6 +4218,7 @@ class AntFarm : ModelTask() {
                         if (ResChecker.checkRes(TAG, awardJo)) {
                             val awardCount = task.optInt("awardCount", 0)
                             Log.farm("NPC任务🤖[完成: $title, 奖励: $awardCount 芝麻粒]")
+                            recordFarmReward(title, "$awardCount 芝麻粒", true, null)
                         }
                     }
                 }
@@ -4227,6 +4254,7 @@ class AntFarm : ModelTask() {
                         if (ResChecker.checkRes(TAG, awardJo)) {
                             val awardCount = task.optInt("awardCount", 0)
                             Log.farm("NPC任务🤖[完成: $title, 奖励: $awardCount 黄金票]")
+                            recordFarmReward(title, "$awardCount 黄金票", true, null)
                         }
                     }
                     // 2. 做任务 (仅处理 TRIGGER 类型，如"开始攒黄金"、"领体验金")
@@ -4285,6 +4313,7 @@ class AntFarm : ModelTask() {
                         if (ResChecker.checkRes(TAG, awardJo)) {
                             val awardCount = task.optInt("awardCount", 0)
                             Log.farm("NPC任务🤖[完成: $title, 奖励: $awardCount 肥料]")
+                            recordFarmReward(title, "$awardCount 肥料", true, null)
                         }
                     }
                 }

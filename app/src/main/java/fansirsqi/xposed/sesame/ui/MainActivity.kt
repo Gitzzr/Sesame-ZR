@@ -129,6 +129,7 @@ class MainActivity : ComponentActivity() {
         data object OpenCaptureLog : MainUiEvent()
         data object OpenExtend : MainUiEvent()
         data object ClearConfig : MainUiEvent()
+        data object OpenDailyTaskCheck : MainUiEvent()
     }
 
     /**
@@ -157,6 +158,7 @@ class MainActivity : ComponentActivity() {
             }
 
             MainUiEvent.OpenCaptureLog -> openLogFile(Files.getCaptureLogFile())
+            MainUiEvent.OpenDailyTaskCheck -> startActivity(Intent(this, DailyTaskCheckActivity::class.java))
             MainUiEvent.OpenExtend -> startActivity(Intent(this, _root_ide_package_.fansirsqi.xposed.sesame.ui.ExtendActivity::class.java))
             MainUiEvent.ClearConfig -> {
                 // 🔥 这里只负责执行逻辑，不再负责弹窗
