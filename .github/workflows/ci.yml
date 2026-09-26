@@ -51,6 +51,26 @@ jobs:
       - name: ☎️ Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: 📝 CHANGELOG 片段格式校验
+        # 片段模式：PR 阶段只新增 changelog.d/*.md（新文件，永不冲突），
+        # 并由汇总步骤统一并入 CHANGELOG.md。这里只校验已提交片段的格式与长度。
+        run: python3 scripts/changelog_fragments.py --check
+
+      - name: 💡 提醒：改了生产代码但没有 CHANGELOG 片段
+        # 只是提醒，不失败 —— 内部重构、日志格式等改动按约定本就不需要片段。
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          code_changed=$(git diff --name-only "$base"...HEAD -- 'app/src/main/**' | head -1)
+          fragments=$(git diff --name-only --diff-filter=A "$base"...HEAD -- 'changelog.d/*.md' | grep -v 'README.md' | head -1)
+          if [ -n "$code_changed" ] && [ -z "$fragments" ]; then
+            echo "::warning title=缺少 CHANGELOG 片段::本次改动了 app/src/main/，但没有新增 changelog.d/*.md。"
+            echo "若该改动用户可见，请补一个片段（写法见 docs/development.md §4）；若属内部重构/日志格式等，忽略此提醒即可。"
+          else
+            echo "CHANGELOG 片段检查通过（或本次未改动生产代码）"
+          fi
+
       - name: 🔨 Build debug（含 aapt2 资源处理与打包）
         run: ./gradlew :app:assembleDebug --console=plain
 

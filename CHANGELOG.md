@@ -1,7 +1,11 @@
 # 更新记录
 
 > 只记**用户可见**的改动：**一个 PR 一行**，1~3 句、≤ 200 字，新行加在表格**最上面**。
-> 完整判定标准与写法见 [`docs/development.md` §4 · CHANGELOG 约定](docs/development.md)。
+>
+> ⚠️ **不要在 PR 里直接编辑本文件** —— 并发 PR 会在同一位置插行而必然冲突。
+> 请在 `changelog.d/` 下新增一个片段，由汇总步骤统一并入（发版 / 打 tag 前）。
+> 完整判定标准、写法与汇总流程见 [`docs/development.md` §4 · CHANGELOG 约定](docs/development.md)
+> 与 [`changelog.d/README.md`](changelog.d/README.md)。
 
 ## 最近功能更新
 
