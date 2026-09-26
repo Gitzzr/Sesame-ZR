@@ -4,18 +4,15 @@ import android.content.Context
 import fansirsqi.xposed.sesame.model.BaseModel
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * 日志工具类，负责初始化和管理各种类型的日志记录器，并提供日志输出方法。
  */
 object Log {
     private const val DEFAULT_TAG = ""
-    private const val MAX_DUPLICATE_ERRORS = 3 // 最多打印3次相同错误
 
-    // 错误去重机制
-    private val errorCountMap = ConcurrentHashMap<String, AtomicInteger>()
+    // 异常去重 + 栈帧截断策略（纯逻辑，见 ErrorLogPolicy.kt）
+    private val errorLogPolicy = ErrorLogPolicy()
 
     // Logger 实例
     private val RECORD_LOGGER: Logger
@@ -143,54 +140,45 @@ object Log {
 
 
     /**
-     * 检查是否应该打印此错误（去重机制）
+     * 异常堆栈的统一出口：去重 + 截断。
+     *
+     * @param prefix 保留原有的输出前缀，避免改变既有日志格式
+     * @param msg 为空时按单参数 [error] 输出，否则按 `error(msg, text)` 输出（与改造前一致）
      */
-    private fun shouldPrintError(th: Throwable?): Boolean {
-        if (th == null) return false
+    private fun writeStackTrace(th: Throwable?, prefix: String, msg: String?) {
+        if (th == null) return
+        val signature = ErrorLogPolicy.signatureOf(th)
+        val action = errorLogPolicy.actionFor(signature)
+        if (action == ErrorLogAction.SUPPRESS) return
 
-        // 提取错误特征
-        var errorSignature = th.javaClass.simpleName + ":" +
-                (th.message?.take(50) ?: "null")
-
-        // 特殊处理：JSON解析空字符串错误
-        if (th.message?.contains("End of input at character 0") == true) {
-            errorSignature = "JSONException:EmptyResponse"
+        val text = prefix + StackTraceFormatter.truncateFrames(
+            android.util.Log.getStackTraceString(th)
+        )
+        if (msg == null) {
+            error(text)
+        } else {
+            error(msg, text)
         }
-
-        val count = errorCountMap.computeIfAbsent(errorSignature) { AtomicInteger(0) }
-        val currentCount = count.incrementAndGet()
-
-        // 如果是第3次，记录一个汇总信息
-        if (currentCount == MAX_DUPLICATE_ERRORS) {
-            record("⚠️ 错误【$errorSignature】已出现${currentCount}次，后续将不再打印详细堆栈")
-            return true
+        if (action == ErrorLogAction.PRINT_AND_ANNOUNCE) {
+            record("⚠️ 错误【$signature】已出现${errorLogPolicy.countOf(signature)}次，后续将不再打印详细堆栈")
         }
-
-        // 超过最大次数后不再打印
-        return currentCount <= MAX_DUPLICATE_ERRORS
     }
 
     @JvmStatic
 
     fun printStackTrace(th: Throwable) {
-        if (shouldPrintError(th)) return
-        val stackTrace = "error: " + android.util.Log.getStackTraceString(th)
-        error(stackTrace)
+        writeStackTrace(th, "error: ", null)
     }
 
     @JvmStatic
 
     fun printStackTrace(msg: String, th: Throwable) {
-        if (shouldPrintError(th)) return
-        val stackTrace = "Throwable error: " + android.util.Log.getStackTraceString(th)
-        error(msg, stackTrace)
+        writeStackTrace(th, "Throwable error: ", msg)
     }
 
     @JvmStatic
     fun printStackTrace(tag: String, msg: String, th: Throwable) {
-        if (shouldPrintError(th)) return
-        val stackTrace = "[$tag] Throwable error: " + android.util.Log.getStackTraceString(th)
-        error(msg, stackTrace)
+        writeStackTrace(th, "[$tag] Throwable error: ", msg)
     }
 
     // 兼容 Exception 参数的重载 (Kotlin 中 Exception 是 Throwable 的子类，其实可以直接用上面的)
