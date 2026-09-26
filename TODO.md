@@ -12,7 +12,7 @@
 
 ## 🔴 P0 · 原阻塞项（两条均已解除，当前无开发阻塞）
 
-### P0-1 单元测试编译失败 —— 🟡 阻塞已解，功能仍未实现（2026-09-22）
+### P0-1 单元测试编译失败 —— ✅ 已完成（2026-09-26）
 
 **原现象**：`./gradlew :app:testDebugUnitTest` 直接编译失败，整个测试任务跑不起来。
 
@@ -40,13 +40,19 @@
 
 **待办**：
 
-- [ ] 定调度语义（`timeReached` 判定依据、`completedToday` 数据来源）
-- [ ] 实现 `ChouChouLeScheduleAction` + `ChouChouLeSchedulePolicy`
-- [ ] **接线到 `ChouChouLe.kt` 的调度分支** —— 只实现不接线会留下死代码
-- [ ] 补 `(completedToday = true, timeReached = false)` 这条用例（现有用例没覆盖）
-- [ ] 解除 `@Ignore` 并恢复断言
+- [x] 定调度语义 —— **契约测试的表格就是语义**，无需另行拍板：
+      `completedToday` = `Status.hasFlagToday("farm::chouChouLeFinished")`；
+      `timeReached` = 执行条件是否满足（按时模式看 `TaskTimeChecker.isTimeReached(enableChouchouleTime, "0900")`，
+      等改分模式看 `Status.hasFlagToday("farm::farmGameFinished")`）
+- [x] 实现 `ChouChouLeScheduleAction` + `ChouChouLeSchedulePolicy`（2026-09-26）
+- [x] **接线到调度分支** —— 落点是 `AntFarm.handleChouChouLeLogic()`（不是 `ChouChouLe.kt`：
+      后者的 `chouchoule()` 只是执行入口，真正的调度判定一直在 `AntFarm` 里）。
+      接线为**行为逐条等价**的内联 `when` → 策略调用替换（2026-09-26）
+- [x] 补 `(completedToday = true, timeReached = false)` 用例（2026-09-26）
+- [x] 解除 `@Ignore` 并恢复断言（2026-09-26）
 
 **验收**：`./gradlew :app:testDebugUnitTest` 编译并执行，该测试由 skipped 变为 pass。
+→ ✅ **已达成**：全量 278 项、0 失败、**skipped 由 3 降为 0**，`ChouChouLeSchedulePolicyTest` 4 项全 pass。
 
 > 背景：`2026-09-05` 计划的「分支更正」一节已经记录过这个问题（*「开发分支原有 `ChouChouLeSchedulePolicyTest.kt` 引用不存在的类，完整测试编译失败」*），当时用「临时隔离该文件」的方式绕过并跑通 164 项测试，但**问题本身没有被修**。2026-09-22 的 `@Ignore` 同样是权宜之计。
 
@@ -261,7 +267,7 @@ StopExecutionException: Your project path contains non-ASCII characters.
 
 - [x] 建立文档体系：`AGENTS.md`、`DESIGN.md`、`TODO.md`、`docs/{project-overview,architecture,user-guide,development,component-api}.md`（2026-09-21）
 - [x] `CODEBUDDY.md` 仓库导览（2026-09-21）
-- [ ] 把 P0-1 的修复结论回填到 `docs/superpowers/plans/2026-09-05-verification-and-log-errors.md` 的「分支更正」一节
+- [x] 把 P0-1 的修复结论回填到 `docs/superpowers/plans/2026-09-05-verification-and-log-errors.md` 的「分支更正」一节（2026-09-26）
 - [x] 建立 CI 测试环节：已拆分流水线 —— `ci.yml` 跑 build + 单测（Kotlin/JVM + Web JS），`android.yml` 只管发版（2026-09-22）
 - [x] 在 GitHub 上为 `main` 开 branch protection —— **已完成**（2026-09-24 核实）：必需检查 `build-and-test` 且 `strict: true`（分支必须先与 `main` 同步才能合入）、`allow_force_pushes=false`、`allow_deletions=false`、`enforce_admins=true`。**唯一差异**：`required_approving_review_count = 0`，即强制 review 未开（单人仓库），要开得手动指定 reviewer
 - [ ] 评估三套 UI 体系（Compose 青 / XML 蓝 / Web 橙）的配色统一 —— 属于产品决策，需单独立项，**不要顺手改**
@@ -297,7 +303,7 @@ StopExecutionException: Your project path contains non-ASCII characters.
 
 | 优先级 | 任务 | 阻塞于 | 预计影响面 |
 | --- | --- | --- | --- |
-| ~~🟡 P0-1~~ ⚠️ | 抽抽乐调度策略：**编译阻塞已解**（`@Ignore`），功能本身待实现并接线 | 需先定调度语义 | 1 新增文件 + `ChouChouLe.kt` 调度分支 |
+| ~~🟡 P0-1~~ ✅ | ~~抽抽乐调度策略：编译阻塞已解（`@Ignore`），功能本身待实现并接线~~ 已完成 2026-09-26（全量 skipped 3→0） | — | 1 新增文件 + `AntFarm` 调度分支 |
 | ~~🔴 P0-2~~ ✅ | ~~装 JDK 17 + Android SDK 37~~ 已完成 2026-09-21 | — | 环境，无代码变更 |
 | 🟠 P1-1 | 安全验证与调度修复的实机回归 | 真机 | 无代码变更，纯验证 |
 | 🟠 P1-2 | 自营项目捐蛋 | **需要用户提供抓包样本** | `AntFarm.kt` + 协议测试 |
