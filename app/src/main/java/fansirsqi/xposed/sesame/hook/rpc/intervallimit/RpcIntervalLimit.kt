@@ -65,18 +65,24 @@ object RpcIntervalLimit {
         val intervalLimit = intervalLimitMap.getOrDefault(method, DEFAULT_INTERVAL_LIMIT)
         val lock = requireNotNull(intervalLimit) { "间隔限制对象不能为空" }
 
+        // 锁内只「预约」一个不早于 (上次预约时刻 + interval) 的时刻，sleep 挪到锁外。
+        //
+        // 原实现把 sleepCompat 放在 synchronized 内部，并发调用会一起堵在监视器上 ——
+        // 实测 logcat 的 dvm_lock_sample 在该锁上采样到 310 次。
+        // 预约式写法保持「相邻调用间隔不小于 interval」的语义不变（每个调用者各占一个时间片），
+        // 但等待期间不再持锁。
+        val waitMs: Long
         synchronized(lock) {
             // 解决 Int? 的问题，使用默认值兜底
             val interval = intervalLimit.interval ?: DEFAULT_INTERVAL
             val now = System.currentTimeMillis()
-            val lastTime = intervalLimit.time
-            val sleep = interval - (now - lastTime)
+            val scheduled = maxOf(now, intervalLimit.time + interval)
+            intervalLimit.time = scheduled
+            waitMs = scheduled - now
+        }
 
-            if (sleep > 0) {
-                GlobalThreadPools.sleepCompat(sleep)
-            }
-
-            intervalLimit.time = now
+        if (waitMs > 0) {
+            GlobalThreadPools.sleepCompat(waitMs)
         }
     }
 
