@@ -472,7 +472,7 @@ class AntSports : ModelTask() {
             val resultData = JSONObject(result)
 
             if (ResChecker.checkRes(TAG, result)) {
-                Log.other("做任务得能量🎈[$taskName] +$prizeAmount 能量")
+                Log.life("做任务得能量🎈[$taskName] +$prizeAmount 能量")
                 true
             } else {
                 val errorMsg = resultData.optString("errorMsg", "未知错误")
@@ -561,7 +561,7 @@ class AntSports : ModelTask() {
             if (ResChecker.checkRes(TAG, resultData)) {
                 val data = resultData.optJSONObject("data")
                 val taskOrderId = data?.optString("taskOrderId", "") ?: ""
-                Log.other("做任务得能量🎈[签到成功：$taskName，订单：$taskOrderId]")
+                Log.life("做任务得能量🎈[签到成功：$taskName，订单：$taskOrderId]")
                 true
             } else {
                 val errorMsg = resultData.optString("errorMsg", "未知错误")
@@ -615,7 +615,7 @@ class AntSports : ModelTask() {
                     hasCompletedTask = true
                     val dataObj = completeRes.optJSONObject("data")
                     val assetCoinAmount = dataObj?.optInt("assetCoinAmount", 0) ?: 0
-                    Log.other("运动球任务✅[$sourceName]#奖励$assetCoinAmount💰")
+                    Log.life("运动球任务✅[$sourceName]#奖励$assetCoinAmount💰")
                 } else {
                     val errorCode = completeRes.optString("errorCode", "")
                     val errorMsg = completeRes.optString("errorMsg", "")
@@ -636,7 +636,7 @@ class AntSports : ModelTask() {
                 if (ResChecker.checkRes(TAG, resultJson)) {
                     val dataObj = resultJson.optJSONObject("data")
                     val balance = dataObj?.optString("balance", "0") ?: "0"
-                    Log.other("拾取能量球成功  当前余额: $balance💰")
+                    Log.life("拾取能量球成功  当前余额: $balance💰")
                 } else {
                     Log.error(TAG, "领取能量球任务失败: ${resultJson.optString("errorMsg", "未知错误")}")
                 }
@@ -679,7 +679,7 @@ class AntSports : ModelTask() {
                                 else "未知"
                                 val toast = if (signData.has("toast")) signData.getString("toast") else ""
 
-                                Log.other(
+                                Log.life(
                                     "做任务得能量🎈[签到${expireDays}天|" +
                                         coinAmount + "能量，" + toast + "💰]"
                                 )
@@ -718,7 +718,7 @@ class AntSports : ModelTask() {
                     val coinAmount = jo.getInt("coinAmount")
                     val res = JSONObject(AntSportsRpcCall.receiveCoinAsset(assetId, coinAmount))
                     if (ResChecker.checkRes(TAG, res)) {
-                        Log.other("收集金币💰[$coinAmount 个]")
+                        Log.life("收集金币💰[$coinAmount 个]")
                     } else {
                         Log.record(TAG, "首页收集金币 $res")
                     }
@@ -799,7 +799,7 @@ class AntSports : ModelTask() {
             @SuppressLint("SimpleDateFormat") val sdf = SimpleDateFormat("yyyy-MM-dd")
             val jo = JSONObject(AntSportsRpcCall.walkGo(sdf.format(date), pathId, useStepCount))
             if (ResChecker.checkRes(TAG, jo)) {
-                Log.other(TAG, "行走路线🚶🏻‍♂️路线[$pathName]#前进了${useStepCount}步")
+                Log.life(TAG, "行走路线🚶🏻‍♂️路线[$pathName]#前进了${useStepCount}步")
                 queryPath(pathId)
             } else {
                 Log.error(TAG, "walkGo失败： [pathId: $pathId]: $jo")
@@ -1135,7 +1135,7 @@ class AntSports : ModelTask() {
                 }
                 jo = JSONObject(s)
                 if (ResChecker.checkRes(TAG, jo)) {
-                    Log.other("加入线路🚶🏻‍♂️[$title]")
+                    Log.life("加入线路🚶🏻‍♂️[$title]")
                     queryMyHomePage(loader)
                 } else {
                     Log.record(TAG, jo.getString("resultDesc"))
@@ -1156,14 +1156,14 @@ class AntSports : ModelTask() {
             val s = AntSportsRpcCall.go(day, rankCacheKey, stepCount)
             val jo = JSONObject(s)
             if (ResChecker.checkRes(TAG, jo)) {
-                Log.other("行走线路🚶🏻‍♂️[$title]#前进了${jo.getInt("goStepCount")}步")
+                Log.life("行走线路🚶🏻‍♂️[$title]#前进了${jo.getInt("goStepCount")}步")
                 val completed = "COMPLETED" == jo.getString("completeStatus")
                 val ja = jo.getJSONArray("allTreasureBoxModelList")
                 for (i in 0 until ja.length()) {
                     parseTreasureBoxModel(loader, ja.getJSONObject(i), rankCacheKey)
                 }
                 if (completed) {
-                    Log.other("完成线路🚶🏻‍♂️[$title]")
+                    Log.life("完成线路🚶🏻‍♂️[$title]")
                     queryMyHomePage(loader)
                 }
             } else {
@@ -1235,7 +1235,7 @@ class AntSports : ModelTask() {
                 for (i in 0 until ja.length()) {
                     jo = ja.getJSONObject(i)
                     num += jo.getInt("num")
-                    Log.other("运动宝箱🎁[$num${jo.getString("name")}]")
+                    Log.life("运动宝箱🎁[$num${jo.getString("name")}]")
                 }
                 return num
             } else if ("TREASUREBOX_NOT_EXIST" == jo.getString("resultCode")) {
@@ -1296,7 +1296,7 @@ class AntSports : ModelTask() {
             val s = AntSportsRpcCall.donate(donateCharityCoin, projectId)
             val jo = JSONObject(s)
             if (ResChecker.checkRes(TAG, jo)) {
-                Log.other("捐赠活动❤️[$title][$donateCharityCoin 能量🎈]")
+                Log.life("捐赠活动❤️[$title][$donateCharityCoin 能量🎈]")
             } else {
                 Log.record(TAG, jo.getString("resultDesc"))
             }
@@ -1336,7 +1336,7 @@ class AntSports : ModelTask() {
                         val donateExchangeResultModel = jo.getJSONObject("donateExchangeResultModel")
                         val userCount = donateExchangeResultModel.getInt("userCount")
                         val amount = donateExchangeResultModel.getJSONObject("userAmount").getDouble("amount")
-                        Log.other("捐出活动❤️[$userCount 步]#兑换$amount 元公益金")
+                        Log.life("捐出活动❤️[$userCount 步]#兑换$amount 元公益金")
                         Status.exchangeToday(UserMap.currentUid ?: return)
                     } else if (s.contains("已捐步")) {
                         Status.exchangeToday(UserMap.currentUid ?: return)
@@ -1375,7 +1375,7 @@ class AntSports : ModelTask() {
                     val res = JSONObject(AntSportsRpcCall.userTaskComplete(bizType, taskId))
                     if (ResChecker.checkRes(TAG, res)) {
                         val taskName = taskInfo.optString("taskName", taskId)
-                        Log.other("完成任务🧾[$taskName]")
+                        Log.life("完成任务🧾[$taskName]")
                     } else {
                         Log.record(TAG, "文体每日任务 $res")
                     }
@@ -1431,7 +1431,7 @@ class AntSports : ModelTask() {
                             val data = res.getJSONObject("data")
                             val roundDescription = data.getString("roundDescription")
                             val targetStepCount = data.getInt("targetStepCount")
-                            Log.other("走路挑战🚶🏻‍♂️[$roundDescription]#$targetStepCount")
+                            Log.life("走路挑战🚶🏻‍♂️[$roundDescription]#$targetStepCount")
                         } else {
                             Log.record(TAG, "走路挑战赛 $res")
                         }
@@ -1472,7 +1472,7 @@ class AntSports : ModelTask() {
                                 .append("*")
                                 .append(r.getInt("baseAwardCount"))
                         }
-                        Log.other("领取奖励🎖️[$taskName]#$award")
+                        Log.life("领取奖励🎖️[$taskName]#$award")
                     } else {
                         Log.record(TAG, "文体中心领取奖励")
                         Log.record(res.toString())
@@ -1553,7 +1553,7 @@ class AntSports : ModelTask() {
                                 .append("*")
                                 .append(right.getInt("count"))
                         }
-                        Log.other("文体宝箱🎁[$award]")
+                        Log.life("文体宝箱🎁[$award]")
                     } else {
                         Log.record(TAG, "文体中心开宝箱")
                         Log.record(res.toString())
@@ -1575,7 +1575,7 @@ class AntSports : ModelTask() {
         try {
             val jo = JSONObject(AntSportsRpcCall.pathMapJoin(pathId))
             if (ResChecker.checkRes(TAG, jo)) {
-                Log.other("加入线路🚶🏻‍♂️[$title]")
+                Log.life("加入线路🚶🏻‍♂️[$title]")
                 pathFeatureQuery()
             } else {
                 Log.record(TAG, jo.toString())
@@ -1600,14 +1600,14 @@ class AntSports : ModelTask() {
             var jo = JSONObject(s)
             if (ResChecker.checkRes(TAG, jo)) {
                 jo = jo.getJSONObject("userPath")
-                Log.other(
+                Log.life(
                     "行走线路🚶🏻‍♂️[$title]#前进了" +
                         jo.getInt("userPathRecordForwardStepCount") + "步"
                 )
                 pathMapHomepage(pathId)
                 val completed = "COMPLETED" == jo.getString("userPathRecordStatus")
                 if (completed) {
-                    Log.other("完成线路🚶🏻‍♂️[$title]")
+                    Log.life("完成线路🚶🏻‍♂️[$title]")
                     pathFeatureQuery()
                 }
             } else {
@@ -1674,7 +1674,7 @@ class AntSports : ModelTask() {
                     amount = changeAmountStr.toIntOrNull() ?: 0
                 }
 
-                Log.other("训练好友💰️ [获得:$amount 金币]")
+                Log.life("训练好友💰️ [获得:$amount 金币]")
 
                 if (amount <= 0) {
                     zeroTrainCoinCount++
@@ -1769,7 +1769,7 @@ class AntSports : ModelTask() {
                         return
                     }
 
-                    Log.other("训练好友🥋[训练:$userName $trainItemName]")
+                    Log.life("训练好友🥋[训练:$userName $trainItemName]")
                     GlobalThreadPools.sleepCompat(1000)
                     return
                 }
@@ -1870,7 +1870,7 @@ class AntSports : ModelTask() {
 
                     if (ResChecker.checkRes(TAG, buyMemberResponse)) {
                         val userName = UserMap.getMaskName(originBossId) ?: originBossId
-                        Log.other("抢购好友🥋[成功:将 $userName 抢回来]")
+                        Log.life("抢购好友🥋[成功:将 $userName 抢回来]")
                         if (trainFriend.value) {
                             queryTrainItem()
                         }
@@ -2000,7 +2000,7 @@ class AntSports : ModelTask() {
                 val signInfoAfter = signData.optJSONObject("continuousSignInfo")
                 val newContinuity = signInfoAfter?.optInt("continuitySignedDayCount", -1) ?: -1
 
-                Log.other(
+                Log.life(
                     "健康岛签到成功 🎉 +" + rewardAmount + rewardType +
                         " 连续：" + newContinuity + " 天"
                 )
@@ -2040,7 +2040,7 @@ class AntSports : ModelTask() {
 
                     val taskList = taskCenterResp.getJSONObject("data").optJSONArray("taskCenterTaskVOS")
                     if (taskList == null || taskList.length() == 0) {
-                        Log.other("任务中心为空，无任务可处理")
+                        Log.life("任务中心为空，无任务可处理")
                         break
                     }
 
@@ -2222,7 +2222,7 @@ class AntSports : ModelTask() {
                         if (ResChecker.checkRes(TAG + "领取健康岛任务奖励:", receiveResp) &&
                             ResChecker.checkRes(TAG, receiveResp)
                         ) {
-                            Log.other("✅ 健康岛浏览任务完成，获得能量+$energyNum")
+                            Log.life("✅ 健康岛浏览任务完成，获得能量+$energyNum")
                         } else {
                             Log.error(TAG, "健康岛任务领取失败: $receiveResp")
                         }
@@ -2247,7 +2247,7 @@ class AntSports : ModelTask() {
                 task.put("scene", "MED_TASK_HALL")
                 val res = JSONObject(AntSportsRpcCall.NeverlandRpcCall.taskSend(task))
                 if (ResChecker.checkRes(TAG, res)) {
-                    Log.other("✔ 活动任务完成：$title")
+                    Log.life("✔ 活动任务完成：$title")
                     true
                 } else {
                     Log.error(TAG, "taskSend 失败: $task 响应：$res")
@@ -2290,7 +2290,7 @@ class AntSports : ModelTask() {
                             rewardMsg = " (获得奖励: $amount 能量)"
                         }
                     }
-                    Log.other("✔ 浏览任务完成：$title$rewardMsg")
+                    Log.life("✔ 浏览任务完成：$title$rewardMsg")
                     true
                 } else {
                     Log.error(TAG, "完成 LIGHT_TASK 失败: $title 返回: $res")
@@ -2324,7 +2324,7 @@ class AntSports : ModelTask() {
 
                 val arr = jo.getJSONObject("data").optJSONArray("bubbleTaskVOS")
                 if (arr == null || arr.length() == 0) {
-                    Log.other("无泡泡可领取")
+                    Log.life("无泡泡可领取")
                     return
                 }
 
@@ -2373,7 +2373,7 @@ class AntSports : ModelTask() {
                     if (changeAmount == "0") {
                         Log.record(TAG, "健康岛 · 本次未获得任何能量")
                     } else {
-                        Log.other("捡泡泡成功 🎈 +$changeAmount 余额：$balance")
+                        Log.life("捡泡泡成功 🎈 +$changeAmount 余额：$balance")
                     }
                 }
 
@@ -2399,7 +2399,7 @@ class AntSports : ModelTask() {
                             )
 
                             if (ResChecker.checkRes(TAG + "领取泡泡任务奖励:", receiveResp)) {
-                                Log.other("✅ 浏览任务[$title]完成，获得能量+$energyNum")
+                                Log.life("✅ 浏览任务[$title]完成，获得能量+$energyNum")
                             } else {
                                 Log.error(TAG, "浏览任务领取失败: $receiveResp")
                             }
@@ -2632,12 +2632,12 @@ class AntSports : ModelTask() {
                         sb.append("啥也没有")
                     }
 
-                    Log.other(sb.toString())
+                    Log.life(sb.toString())
 
                     tryReceiveStageReward(branchId, mapId, starData)
 
                     if (currStar >= maxStar) {
-                        Log.other("[$mapName] 当前地图已完成星星，准备切换地图")
+                        Log.life("[$mapName] 当前地图已完成星星，准备切换地图")
                         chooseAvailableMap()
                         break
                     }
@@ -2665,7 +2665,7 @@ class AntSports : ModelTask() {
                 }
             }
 
-            Log.other(String.format("检测到未领取关卡奖励 🎁 map=%s 等级: %d，尝试领取…", mapId, rewardLevel))
+            Log.life(String.format("检测到未领取关卡奖励 🎁 map=%s 等级: %d，尝试领取…", mapId, rewardLevel))
 
             val rewardStr = try {
                 AntSportsRpcCall.NeverlandRpcCall.mapStageReward(branchId, rewardLevel, mapId)
@@ -2693,7 +2693,7 @@ class AntSports : ModelTask() {
             if (!ResChecker.checkRes(TAG, rewardResp)) {
                 val errCode = rewardResp.optString("errorCode", "")
                 if ("ASSET_ITEM_NOT_EXISTED" == errCode) {
-                    Log.other("关卡奖励已被领取或不存在（可忽略）")
+                    Log.life("关卡奖励已被领取或不存在（可忽略）")
                 } else {
                     Log.error(TAG, "领取关卡奖励失败: $rewardResp")
                 }
@@ -2719,7 +2719,7 @@ class AntSports : ModelTask() {
                         .append(p.optString("modifyCount", "1"))
                     if (i != prizes.length() - 1) sb.append("，")
                 }
-                Log.other(
+                Log.life(
                     String.format(
                         "Lv.%s 奖励领取成功 🎉 %s | 当前余额: %s",
                         rewardLevel,
@@ -2728,7 +2728,7 @@ class AntSports : ModelTask() {
                     )
                 )
             } else {
-                Log.other("关卡奖励领取成功 🎉（无可展示奖励）")
+                Log.life("关卡奖励领取成功 🎉（无可展示奖励）")
             }
         }
 
@@ -2764,7 +2764,7 @@ class AntSports : ModelTask() {
                 }
 
                 if (doingMap != null) {
-                    Log.other(
+                    Log.life(
                         "当前 DOING 地图: " + doingMap.optString("mapName") +
                             doingMap.optString("mapId") + " → 执行一次强制切换确保状态一致"
                     )
@@ -2777,7 +2777,7 @@ class AntSports : ModelTask() {
                 }
 
                 val chosenLocked = lockedMaps[Random().nextInt(lockedMaps.size)]
-                Log.other("随机选择 LOCKED 地图: " + chosenLocked.optString("mapId"))
+                Log.life("随机选择 LOCKED 地图: " + chosenLocked.optString("mapId"))
                 chooseMap(chosenLocked)
             } catch (t: Throwable) {
                 Log.printStackTrace(TAG, "chooseAvailableMap err", t)
@@ -2840,7 +2840,7 @@ class AntSports : ModelTask() {
             var remainSteps = remainStepsInit
             var leftEnergy = leftEnergyInit
             try {
-                Log.other(String.format("开始执行建造任务, 地图: %s", mapId))
+                Log.life(String.format("开始执行建造任务, 地图: %s", mapId))
 
                 val resp = AntSportsRpcCall.NeverlandRpcCall.queryMapInfoNew(mapId)
                 val mapInfo = JSONObject(resp)
@@ -2935,7 +2935,7 @@ class AntSports : ModelTask() {
 
                     val awardInfo = extractAwardInfo(buildData)
 
-                    Log.other(
+                    Log.life(
                         String.format(
                             "建造进度 🏗️ 倍数: x%d | 能量: %d | 本次: +%d | 今日: %d/%d%s",
                             multiNum,
@@ -2948,7 +2948,7 @@ class AntSports : ModelTask() {
                     )
                     GlobalThreadPools.sleepCompat(1000)
                 }
-                Log.other("自动建造任务完成 ✓")
+                Log.life("自动建造任务完成 ✓")
             } catch (t: Throwable) {
                 Log.printStackTrace(TAG, "executeAutoBuild err", t)
             }

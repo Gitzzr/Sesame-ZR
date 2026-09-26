@@ -238,7 +238,7 @@ class AntStall : ModelTask() {
 
             // 检查是否已注册
             if (!homeJson.getBoolean("hasRegister") || homeJson.getBoolean("hasQuit")) {
-                Log.farm("蚂蚁新村⛪请先开启蚂蚁新村")
+                Log.stall("蚂蚁新村⛪请先开启蚂蚁新村")
                 return
             }
 
@@ -346,7 +346,7 @@ class AntStall : ModelTask() {
 
             if (ResChecker.checkRes(TAG, sendBackJson)) {
                 val amountText = if (amount > 0) "获得金币$amount" else ""
-                Log.farm("蚂蚁新村⛪请走[${UserMap.getMaskName(shopUserId)}]的小摊$amountText")
+                Log.stall("蚂蚁新村⛪请走[${UserMap.getMaskName(shopUserId)}]的小摊$amountText")
             } else {
                 Log.error(TAG, "sendBack err: $sendBackResponse")
             }
@@ -396,7 +396,7 @@ class AntStall : ModelTask() {
 
                     val inviteJson = JSONObject(inviteResponse)
                     if (ResChecker.checkRes(TAG, inviteJson)) {
-                        Log.farm("蚂蚁新村⛪邀请[${UserMap.getMaskName(friendUserId)}]开店成功")
+                        Log.stall("蚂蚁新村⛪邀请[${UserMap.getMaskName(friendUserId)}]开店成功")
                         sentUserId.add(friendUserId)
                         return
                     } else {
@@ -525,7 +525,7 @@ class AntStall : ModelTask() {
                 val response = AntStallRpcCall.settle(assetId, settleCoin)
                 val json = JSONObject(response)
                 if (ResChecker.checkRes(TAG, json)) {
-                    Log.farm("蚂蚁新村⛪[收取金币]#$settleCoin")
+                    Log.stall("蚂蚁新村⛪[收取金币]#$settleCoin")
                 } else {
                     Log.error(TAG, "settle err: $response")
                 }
@@ -675,7 +675,7 @@ class AntStall : ModelTask() {
             val json = JSONObject(response)
 
             if (json.optString("resultCode") == "SUCCESS") {
-                Log.farm("蚂蚁新村⛪在[${UserMap.getMaskName(userId)}]家摆摊")
+                Log.stall("蚂蚁新村⛪在[${UserMap.getMaskName(userId)}]家摆摊")
             }
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, "openShop err:", t)
@@ -746,7 +746,7 @@ class AntStall : ModelTask() {
             val closeJson = JSONObject(closeResponse)
 
             if (ResChecker.checkRes(TAG, closeJson)) {
-                Log.farm(
+                Log.stall(
                     "蚂蚁新村⛪收取在[${UserMap.getMaskName(userId)}]的摊位获得${
                         income.getString(
                             "amount"
@@ -807,7 +807,7 @@ class AntStall : ModelTask() {
                     // 自动完成任务
                     if (actionType == "VISIT_AUTO_FINISH" || taskType in TASK_TYPE_LIST) {
                         if (finishTask(taskType)) {
-                            Log.farm("蚂蚁新村💣任务[$title]完成")
+                            Log.stall("蚂蚁新村💣任务[$title]完成")
                             GlobalThreadPools.sleepCompat(200L)
                         }
                         continue
@@ -894,7 +894,7 @@ class AntStall : ModelTask() {
             val json = JSONObject(response)
 
             if (ResChecker.checkRes(TAG, json)) {
-                Log.farm("蚂蚁新村⛪[签到成功]")
+                Log.stall("蚂蚁新村⛪[签到成功]")
             } else {
                 Log.error(TAG, "signToday err: $response")
             }
@@ -914,7 +914,7 @@ class AntStall : ModelTask() {
             val json = JSONObject(response)
 
             if (json.optBoolean("success")) {
-                Log.farm("蚂蚁新村⛪[领取奖励]")
+                Log.stall("蚂蚁新村⛪[领取奖励]")
             } else {
                 Log.error(TAG, "receiveTaskAward err: $response")
             }
@@ -981,7 +981,7 @@ class AntStall : ModelTask() {
                 val inviteJson = JSONObject(inviteResponse)
 
                 if (ResChecker.checkRes(TAG, inviteJson)) {
-                    Log.farm("蚂蚁新村⛪邀请好友[${UserMap.getMaskName(userId)}]#开通新村")
+                    Log.stall("蚂蚁新村⛪邀请好友[${UserMap.getMaskName(userId)}]#开通新村")
                     return true
                 } else {
                     Log.error(TAG, "friendInviteRegister err: $inviteJson")
@@ -1062,7 +1062,7 @@ class AntStall : ModelTask() {
                     }
                 }
 
-                Log.farm("新村助力🎉成功[$name]")
+                Log.stall("新村助力🎉成功[$name]")
                 GlobalThreadPools.sleepCompat(5000)
             }
 
@@ -1117,7 +1117,7 @@ class AntStall : ModelTask() {
                             val title = astProjectVO.optString("title", "未知项目")
 
                             if (donateJson.optString("resultCode", "") == "SUCCESS") {
-                                Log.farm("蚂蚁新村⛪[捐赠:$title]")
+                                Log.stall("蚂蚁新村⛪[捐赠:$title]")
                                 Status.setStallDonateToday()
                             }
                         }
@@ -1156,7 +1156,7 @@ class AntStall : ModelTask() {
                     continue
                 }
 
-                Log.farm("蚂蚁新村⛪[进入:$villageName]成功")
+                Log.stall("蚂蚁新村⛪[进入:$villageName]成功")
                 Status.setFlagToday(flagKey)
                 break
             }
@@ -1190,7 +1190,7 @@ class AntStall : ModelTask() {
                 val collectJson = JSONObject(collectResponse)
 
                 if (ResChecker.checkRes(TAG, collectJson)) {
-                    Log.farm("蚂蚁新村⛪获得肥料${manure}g")
+                    Log.stall("蚂蚁新村⛪获得肥料${manure}g")
                 }
             } else {
                 Log.record(TAG, "没有可收取的肥料。")
@@ -1224,7 +1224,7 @@ class AntStall : ModelTask() {
 
             // 正常的响应检查
             if (ResChecker.checkRes(TAG, json)) {
-                Log.farm("蚂蚁新村⛪打肥料成功")
+                Log.stall("蚂蚁新村⛪打肥料成功")
             }
 
         } catch (t: Throwable) {
@@ -1294,7 +1294,7 @@ class AntStall : ModelTask() {
             val json = JSONObject(response)
 
             if (ResChecker.checkRes(TAG, json)) {
-                Log.farm("蚂蚁新村⛪收取应收金币")
+                Log.stall("蚂蚁新村⛪收取应收金币")
             }
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, "settleReceivable err:", t)
@@ -1394,7 +1394,7 @@ class AntStall : ModelTask() {
                                 return
                             }
 
-                            Log.farm("蚂蚁新村🚫在[${UserMap.getMaskName(friendId)}]贴罚单")
+                            Log.stall("蚂蚁新村🚫在[${UserMap.getMaskName(friendId)}]贴罚单")
 
                         } finally {
                             GlobalThreadPools.sleepCompat(1000)

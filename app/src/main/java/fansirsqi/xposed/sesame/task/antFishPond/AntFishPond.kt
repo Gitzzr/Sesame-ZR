@@ -47,7 +47,7 @@ class AntFishPond : ModelTask() {
                 !Status.hasFlagToday(StatusFlags.FLAG_ANTFISHPOND_RISK_TOKEN_MISSING)
             ) {
                 Status.setFlagToday(StatusFlags.FLAG_ANTFISHPOND_RISK_TOKEN_MISSING)
-                Log.other(
+                Log.ocean(
                     TAG,
                     "缺少 fishpondAngle riskToken，跳过自动钓鱼；请先手动钓鱼以捕获令牌"
                 )
@@ -70,10 +70,10 @@ class AntFishPond : ModelTask() {
             )
 
             if (result.confirmedFishCount > 0) {
-                Log.other(TAG, "本轮自动钓鱼 ${result.confirmedFishCount} 次")
+                Log.ocean(TAG, "本轮自动钓鱼 ${result.confirmedFishCount} 次")
             }
             if (result.retryNeeded) {
-                Log.other(TAG, "鱼池响应暂不完整，本轮安全停止，等待后续重试")
+                Log.ocean(TAG, "鱼池响应暂不完整，本轮安全停止，等待后续重试")
             }
         } catch (e: Exception) {
             Log.printStackTrace(TAG, "福气鱼池执行异常", e)

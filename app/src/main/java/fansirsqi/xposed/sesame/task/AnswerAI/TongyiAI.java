@@ -80,7 +80,7 @@ public class TongyiAI implements AnswerAIInterface {
             }
             String json = response.body().string();
             if (!response.isSuccessful()) {
-                Log.other("Tongyi请求失败");
+                Log.life("Tongyi请求失败");
                 Log.record(TAG,"Tongyi接口异常：" + json);
                 return result;
             }

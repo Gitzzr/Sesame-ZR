@@ -16,10 +16,24 @@ object Logback {
     private var isFileInitialized = false
 
     // 定义所有 Logger 的名称
+    // runtime/system/captcha 为预留文件名，本期未实现对应 Logger：
+    //   runtime —— 运行日志（TaskRunner 调度/轮次统计/RPC 失败摘要），Log.runtime 使用
+    //   system  —— 系统级日志预留（Xposed/Hook 生命周期），暂无写入方
+    //   captcha —— 验证码/风控事件预留，暂无写入方
     val LOG_NAMES = listOf(
         "runtime", "system", "record", "debug", "forest",
-        "farm", "other", "error", "capture", "captcha"
+        "farm", "other", "error", "capture", "captcha",
+        "ocean", "orchard", "stall", "life"
     )
+
+    // 按分类的滚动策略：业务类文件收小配额防文件数 × 64MB 爆盘
+    private const val BIZ_MAX_FILE_SIZE = "3MB"
+    private const val BIZ_TOTAL_SIZE_CAP = "16MB"
+    private const val CORE_MAX_FILE_SIZE = "7MB"
+    private const val CORE_TOTAL_SIZE_CAP = "64MB"
+
+    // 业务类日志（小配额）：新分类文件域
+    private val BIZ_LOG_NAMES = setOf("ocean", "orchard", "stall", "life", "runtime")
 
     /**
      * 阶段1：初始化 Logcat (保证控制台一定有日志)
@@ -111,6 +125,11 @@ object Logback {
         // 1. 先创建实例，不要直接链式 apply，以便后面引用它
         val fileAppender = RollingFileAppender<ILoggingEvent>()
 
+        // 按分类选择容量策略：业务类收紧，核心类（record/error/capture/forest/farm）维持原有配额
+        val isBizLog = logName in BIZ_LOG_NAMES
+        val maxFileSize = if (isBizLog) BIZ_MAX_FILE_SIZE else CORE_MAX_FILE_SIZE
+        val totalSizeCap = if (isBizLog) BIZ_TOTAL_SIZE_CAP else CORE_TOTAL_SIZE_CAP
+
         fileAppender.apply {
             context = lc
             name = "FILE-$logName"
@@ -120,10 +139,9 @@ object Logback {
             val policy = SizeAndTimeBasedRollingPolicy<ILoggingEvent>().apply {
                 context = lc
                 fileNamePattern = "${logDir}bak/$logName-%d{yyyy-MM-dd}.%i.log"
-                setMaxFileSize(FileSize.valueOf("7MB")) // 还原为 50MB
+                setMaxFileSize(FileSize.valueOf(maxFileSize)) // 还原为 50MB
                 // 保留 7 天：排查问题时经常需要回溯一周，3 天不够（实测「分析最近一周」直接拿不到数据）。
-                // 配合 Log.printStackTrace 的 60 帧截断，单文件 7MB 上限下 64MB 足以覆盖 7 天。
-                setTotalSizeCap(FileSize.valueOf("64MB"))
+                setTotalSizeCap(FileSize.valueOf(totalSizeCap))
                 maxHistory = 7
                 isCleanHistoryOnStart = true // 还原 Java 中的 setCleanHistoryOnStart(true)
                 // 必须调用 setParent

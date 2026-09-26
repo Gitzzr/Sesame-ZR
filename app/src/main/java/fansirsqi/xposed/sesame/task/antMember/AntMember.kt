@@ -447,7 +447,7 @@ class AntMember : ModelTask() {
                     try {
                         val openJo = JSONObject(openResp)
                         if (ResChecker.checkRes(TAG, openJo)) {
-                            Log.other("信誉任务[领取成功] $title")
+                            Log.life("信誉任务[领取成功] $title")
                         } else {
                             record(
                                 "$TAG.handleGrowthGuideTasks", ("信誉任务[领取失败] behaviorId=" + behaviorId + " title=" + title + " resp=" + openResp)
@@ -465,7 +465,7 @@ class AntMember : ModelTask() {
                 if ("meiriwenda" == behaviorId && "wait_doing" == status) { //如果等待去做才执行，一般不会进入下面的今日已参与判断
 
                     if (subTitle.contains("今日已参与")) {
-                        Log.other("信誉任务[每日问答] $subTitle（跳过答题）")
+                        Log.life("信誉任务[每日问答] $subTitle（跳过答题）")
                         continue
                     }
 
@@ -531,7 +531,7 @@ class AntMember : ModelTask() {
                         }
 
                         if (ResChecker.checkRes(TAG, pushJo)) {
-                            Log.other(
+                            Log.life(
                                 TAG,
                                 ("信誉任务[每日答题成功] " + questionContent + " | 答案=" + answerContent + "(" + answerId + ")" + (if (subTitle.isEmpty()) "" else " | $subTitle"))
                             )
@@ -567,7 +567,7 @@ class AntMember : ModelTask() {
                     }
 
                     if (ResChecker.checkRes(TAG, jo)) {
-                        Log.other("信誉任务[视频问答提交成功] → ")
+                        Log.life("信誉任务[视频问答提交成功] → ")
                     } else {
                         Log.error("$TAG.handleGrowthGuideTasks", "视频问答[提交失败] → $pushResp")
                     }
@@ -629,7 +629,7 @@ class AntMember : ModelTask() {
 
                         Log.forest("今日农场已施肥💩 $dailyAppWateringCount 次 [$stageText]")
 
-                        Log.other(
+                        Log.life(
                             TAG, "信誉任务[芭芭农场施肥成功] $title | 已施肥 $dailyAppWateringCount 次"
                         )
                     } catch (e: Throwable) {
@@ -907,7 +907,7 @@ class AntMember : ModelTask() {
                 }
 
                 processed++
-                Log.other("年度回顾🎞[任务完成]$taskName#状态=$newStatus 奖励状态=$rewardStatus")
+                Log.life("年度回顾🎞[任务完成]$taskName#状态=$newStatus 奖励状态=$rewardStatus")
             }
 
             record(
@@ -987,7 +987,7 @@ class AntMember : ModelTask() {
                         // 5. 执行兑换
                         record(TAG, "准备兑换[$name], ID: $benefitId, 需积分: $pointNeeded")
                         if (exchangeBenefit(benefitId, itemId, userId)) {
-                            Log.other("会员积分🎐兑换[$name]#花费[$pointNeeded 积分]")
+                            Log.life("会员积分🎐兑换[$name]#花费[$pointNeeded 积分]")
                         } else {
                             record(TAG, "兑换失败: $name (ItemId: $itemId)")
                         }
@@ -1049,7 +1049,7 @@ class AntMember : ModelTask() {
                 delay(500)
                 val jo = JSONObject(s)
                 if (ResChecker.checkRes(TAG + "会员签到失败:", jo)) {
-                    Log.other(
+                    Log.life(
                         "会员签到📅[" + jo.getString("signinPoint") + "积分]#已签到" + jo.getString(
                             "signinSumDay"
                         ) + "天"
@@ -1213,7 +1213,7 @@ class AntMember : ModelTask() {
                 return
             }
             val awardNum = currentTask.optInt("awardNum", task.awardNum)
-            Log.other("会员任务🎖️[开宝箱奖励]#获得积分$awardNum")
+            Log.life("会员任务🎖️[开宝箱奖励]#获得积分$awardNum")
 
             val nextTask = MemberTaskProtocol.parseTreasureBoxTask(response, "nextTaskInfo")
             if (nextTask != null && isToday(nextTask.endTime)) {
@@ -1266,7 +1266,7 @@ class AntMember : ModelTask() {
 
             delay(1_000L)
             if (hasLimitedGameVisitReward(today)) {
-                Log.other("会员任务🎖️[限时游戏访问奖励]#获得积分1")
+                Log.life("会员任务🎖️[限时游戏访问奖励]#获得积分1")
             } else {
                 record(TAG, "会员任务🎖️[限时游戏访问已完成，积分暂未到账]")
             }
@@ -1346,7 +1346,7 @@ class AntMember : ModelTask() {
             ?.optString("rewardAmount")
             .orEmpty()
             .ifEmpty { task.awardNum.takeIf { it > 0 }?.toString().orEmpty() }
-        Log.other(
+        Log.life(
             "会员任务🎖️[${task.title}]#" +
                 if (rewardAmount.isEmpty()) "任务已结算" else "获得积分$rewardAmount"
         )
@@ -1381,7 +1381,7 @@ class AntMember : ModelTask() {
             return false
         }
 
-        Log.other("会员任务🎖️[${task.title}]#任务已完成")
+        Log.life("会员任务🎖️[${task.title}]#任务已完成")
         return true
     }
 
@@ -1490,7 +1490,7 @@ class AntMember : ModelTask() {
                                             prize.optJSONObject("prize")
                                         ).optInt("num", 0) else 0
                                     ) ?: 0
-                                    Log.other("芝麻炼金⚗️[每日签到成功]#获得" + num + "粒")
+                                    Log.life("芝麻炼金⚗️[每日签到成功]#获得" + num + "粒")
                                 } else {
                                     Log.error("$TAG.doSesameAlchemy", "炼金签到失败:$completeRes")
                                 }
@@ -1538,7 +1538,7 @@ class AntMember : ModelTask() {
             }
 
             if (gotNum > 0) {
-                Log.other("芝麻炼金⚗️[次日奖励领取成功]#获得" + gotNum + "粒")
+                Log.life("芝麻炼金⚗️[次日奖励领取成功]#获得" + gotNum + "粒")
             } else {
                 record("芝麻炼金⚗️[次日奖励无奖励] 已领取或无可领奖励")
             }
@@ -1596,7 +1596,7 @@ class AntMember : ModelTask() {
                         continue
                     }
                 }
-                Log.other("芝麻信用💳[" + title + "]#" + potentialSize + "粒" + (if (withOneClick) "(一键收取)" else ""))
+                Log.life("芝麻信用💳[" + title + "]#" + potentialSize + "粒" + (if (withOneClick) "(一键收取)" else ""))
             }
         } catch (t: Throwable) {
             Log.printStackTrace("$TAG.collectSesame", t)
@@ -1627,7 +1627,7 @@ class AntMember : ModelTask() {
                     return@run
                 }
                 val gainGold = jo.getJSONObject("data").getString("gainSumInsuredYuan")
-                Log.other("保障金🏥[领取保证金]#+" + gainGold + "元")
+                Log.life("保障金🏥[领取保证金]#+" + gainGold + "元")
             }
             for (i in 0..<otherBallList.length()) {
                 val anotherBall = otherBallList.getJSONObject(i)
@@ -1639,7 +1639,7 @@ class AntMember : ModelTask() {
                     return@run
                 }
                 val gainGold = jo.getJSONObject("data").getJSONObject("gainSumInsuredDTO").getString("gainSumInsuredYuan")
-                Log.other("保障金🏥[领取保证金]+" + gainGold + "元")
+                Log.life("保障金🏥[领取保证金]+" + gainGold + "元")
             }
         } catch (t: Throwable) {
             Log.printStackTrace("$TAG.collectInsuredGold", t)
@@ -1703,7 +1703,7 @@ class AntMember : ModelTask() {
                         if (signResult != null && signResult.has("prize")) {
                             amount = signResult.getJSONObject("prize").optString("amount")
                         }
-                        Log.other("黄金票🎫[签到成功]#获得: $amount")
+                        Log.life("黄金票🎫[签到成功]#获得: $amount")
                     }
                 }
             }
@@ -1773,7 +1773,7 @@ class AntMember : ModelTask() {
                     val writeOffNo = if (submitResult != null) submitResult.optString("writeOffNo") else ""
 
                     if (!writeOffNo.isEmpty()) {
-                        Log.other("黄金票🎫[提取成功]#消耗: $extractAmount 份")
+                        Log.life("黄金票🎫[提取成功]#消耗: $extractAmount 份")
                     } else {
                         Log.error("黄金票🎫[提取失败] 未返回核销码")
                     }
@@ -1841,7 +1841,7 @@ class AntMember : ModelTask() {
                                 if (!desc.isEmpty()) {
                                     sb.append("#").append(desc)
                                 }
-                                Log.other(sb.toString())
+                                Log.life(sb.toString())
                             } else {
                                 val sb = StringBuilder()
                                 if (!title.isEmpty()) {
@@ -1940,7 +1940,7 @@ class AntMember : ModelTask() {
                                             } else {
                                                 gameCompleted = true
                                                 // 真正完成,重置失败计数
-                                                Log.other(
+                                                Log.life(
                                                     "游戏中心🎮任务[" + (subTitle.ifEmpty { title }) + "]#完成,奖励" + pointAmount + "玩乐豆" + (if (needSignUp) "(签到任务)" else "")
                                                 )
                                                 finished++
@@ -2003,7 +2003,7 @@ class AntMember : ModelTask() {
                             val receiveAmount = batchData?.optInt("receiveAmount", 0) ?: 0
                             val totalAmount = batchData?.optInt("totalAmount", receiveAmount) ?: receiveAmount
                             if (receiveAmount > 0) {
-                                Log.other("游戏中心🎮[一键领取乐豆成功]#本次领取" + receiveAmount + " | 当前累计" + totalAmount + "玩乐豆")
+                                Log.life("游戏中心🎮[一键领取乐豆成功]#本次领取" + receiveAmount + " | 当前累计" + totalAmount + "玩乐豆")
                             } else {
                                 record("$TAG.enableGameCenter.point", "游戏中心🎮[暂无可领取乐豆]")
                             }
@@ -2139,7 +2139,7 @@ class AntMember : ModelTask() {
                                 if (levelUp) currentLevel++
                                 if (levelFull) capReached = true
 
-                                Log.other(
+                                Log.life(
                                     ("芝麻炼金⚗️[炼金成功]" + "#消耗" + cost + "粒" + " | 获得" + goldNum + "金" + " | 当前等级Lv." + currentLevel + (if (levelUp) "（升级🎉）" else "") + (if (levelFull) "（满级🏆）" else ""))
                                 )
                                 zmlBalance -= cost
@@ -2176,7 +2176,7 @@ class AntMember : ModelTask() {
                                     val num = prize?.optInt(
                                         "zmlNum", prize.optJSONObject("prize")?.optInt("num", 0) ?: 0
                                     ) ?: 0
-                                    Log.other("芝麻炼金⚗️[每日签到成功]#获得" + num + "粒")
+                                    Log.life("芝麻炼金⚗️[每日签到成功]#获得" + num + "粒")
                                 } else {
                                     Log.error("$TAG.doSesameAlchemy", "炼金签到失败:$completeRes")
                                 }
@@ -2296,7 +2296,7 @@ class AntMember : ModelTask() {
                     val collectRes = AntMemberRpcCall.collectAllCreditFeedback()
                     val collectJo = JSONObject(collectRes)
                     if (ResChecker.checkRes(TAG, collectJo)) {
-                        Log.other("芝麻炼金⚗️[一键收取成功]#收割完毕")
+                        Log.life("芝麻炼金⚗️[一键收取成功]#收割完毕")
                     } else {
                         record(TAG, "芝麻炼金⚗️[一键收取失败]#" + collectJo.optString("resultView"))
                     }
@@ -2371,7 +2371,7 @@ class AntMember : ModelTask() {
                         ) || "0" == adFinishJo.optString("errCode")
                     ) {
                         val reward = task.optInt("rewardAmount", 0)
-                        Log.other("芝麻炼金⚗️[广告任务完成: " + title + "]#获得" + reward + "粒")
+                        Log.life("芝麻炼金⚗️[广告任务完成: " + title + "]#获得" + reward + "粒")
                     } else {
                         Log.error(TAG, "芝麻炼金广告任务上报失败: $title - $adFinishRes")
                     }
@@ -2432,7 +2432,7 @@ class AntMember : ModelTask() {
                 val finishJo = JSONObject(finishRes)
                 if (ResChecker.checkRes(TAG, finishJo)) {
                     val reward = task.optInt("rewardAmount", 0)
-                    Log.other("芝麻炼金⚗️[任务完成: " + title + "]#获得" + reward + "粒")
+                    Log.life("芝麻炼金⚗️[任务完成: " + title + "]#获得" + reward + "粒")
                 } else {
                     val errorCode = finishJo.optString("resultCode", "")
                     //  val errorMsg = finishJo.optString("resultView", finishRes)
@@ -2797,7 +2797,7 @@ class AntMember : ModelTask() {
                     val ranking = special.optString("rankingText")
 
                     // 仅对特殊贴纸进行 other 输出，显示真实的贴纸名称
-                    Log.other(TAG, "获得特殊贴纸 → $stickerName ($ranking)")
+                    Log.life(TAG, "获得特殊贴纸 → $stickerName ($ranking)")
                 }
             }
 
@@ -2845,7 +2845,7 @@ class AntMember : ModelTask() {
 
                 val collectJson = JSONObject(collectResp)
 
-                Log.other(
+                Log.life(
                     TAG, String.format(
                         "领取完成 → 本次加速进度: %d, 当前加速倍率: %.2f",
                         collectJson.optInt("collectedAccelerateProgress", -1),
@@ -2878,7 +2878,7 @@ class AntMember : ModelTask() {
                         s = AntMemberRpcCall.receivePointByUser(id)
                         jo = JSONObject(s)
                         if (ResChecker.checkRes(TAG + "会员积分领取失败:", jo)) {
-                            Log.other("会员积分🎖️[领取" + bizTitle + "]#" + pointAmount + "积分")
+                            Log.life("会员积分🎖️[领取" + bizTitle + "]#" + pointAmount + "积分")
                         } else {
                             record(jo.getString("resultDesc"))
                             record(s)
@@ -2910,7 +2910,7 @@ class AntMember : ModelTask() {
                 }
                 val entrance = jo.getJSONObject("entrance")
                 if (!entrance.optBoolean("openApp")) {
-                    Log.other("芝麻信用💳[未开通芝麻信用]")
+                    Log.life("芝麻信用💳[未开通芝麻信用]")
                     return false
                 }
                 return true
@@ -3073,7 +3073,7 @@ class AntMember : ModelTask() {
                     if ("SIGN_IN_ENABLE" == jo.optString("signInStatus") && activityNo.isNotEmpty()) {
                         val joSignIn = JSONObject(AntMemberRpcCall.signIn(activityNo))
                         if (ResChecker.checkRes(TAG, joSignIn)) {
-                            Log.other("商家服务🏬[开门打卡签到成功]")
+                            Log.life("商家服务🏬[开门打卡签到成功]")
                         } else {
                             record(TAG, joSignIn.optString("errorMsg"))
                             record(TAG, joSignIn.toString())
@@ -3112,7 +3112,7 @@ class AntMember : ModelTask() {
                             val activityPeriodName = jo.optString("activityPeriodName")
                             val joSignUp = JSONObject(AntMemberRpcCall.signUp(activityNo))
                             if (ResChecker.checkRes(TAG, joSignUp)) {
-                                Log.other("商家服务🏬[" + activityPeriodName + "开门打卡报名]")
+                                Log.life("商家服务🏬[" + activityPeriodName + "开门打卡报名]")
                                 return@run
                             } else {
                                 record(TAG, joSignUp.optString("errorMsg"))
@@ -3145,7 +3145,7 @@ class AntMember : ModelTask() {
                 val signResult = jo.getString("signInResult")
                 val reward = jo.getString("todayReward")
                 if ("SUCCESS" == signResult) {
-                    Log.other("商家服务🏬[每日签到]#获得积分$reward")
+                    Log.life("商家服务🏬[每日签到]#获得积分$reward")
                 } else {
                     record(TAG, s)
                     record(TAG, s)
@@ -3177,7 +3177,7 @@ class AntMember : ModelTask() {
                             if (task.has("pointBallId")) {
                                 jo = JSONObject(AntMemberRpcCall.ballReceive(task.getString("pointBallId")))
                                 if (ResChecker.checkRes(TAG, jo)) {
-                                    Log.other("商家服务🏬[$title]#领取积分$reward")
+                                    Log.life("商家服务🏬[$title]#领取积分$reward")
                                 }
                             }
                         } else if ("PROCESSING" == taskStatus || "UNRECEIVED" == taskStatus) {
@@ -3185,7 +3185,7 @@ class AntMember : ModelTask() {
                                 val bizExtMap = task.getJSONObject("extendLog").getJSONObject("bizExtMap")
                                 jo = JSONObject(AntMemberRpcCall.taskFinish(bizExtMap.getString("bizId")))
                                 if (ResChecker.checkRes(TAG, jo)) {
-                                    Log.other("商家服务🏬[$title]#领取积分$reward")
+                                    Log.life("商家服务🏬[$title]#领取积分$reward")
                                 }
                                 doubleCheck = true
                             } else {
@@ -3259,7 +3259,7 @@ class AntMember : ModelTask() {
                         delay(16000)
                         jo = JSONObject(AntMemberRpcCall.produce(actionCode))
                         if (ResChecker.checkRes(TAG, jo)) {
-                            Log.other("商家服务🏬[完成任务$title]")
+                            Log.life("商家服务🏬[完成任务$title]")
                         }
                     }
                 } else {
@@ -3362,7 +3362,7 @@ class AntMember : ModelTask() {
             // 检查结果
             if (ResChecker.checkRes(TAG, jo)) {
                 val recordId = jo.optJSONObject("data")?.optString("awardRecordId", "")
-                Log.other("芝麻粒兑换🛒[成功] $name #消耗${point}粒")
+                Log.life("芝麻粒兑换🛒[成功] $name #消耗${point}粒")
                 return true
             } else {
                 val errorMsg = jo.optString("resultView", resString)

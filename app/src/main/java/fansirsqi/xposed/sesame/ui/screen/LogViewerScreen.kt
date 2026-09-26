@@ -37,6 +37,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FontDownload
@@ -241,14 +242,35 @@ fun LogViewerScreen(
                         }
                         else {
                             Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        File(filePath).name,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    // ✨ 错误计数徽标
+                                    if (state.errorCount > 0) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            "⚠ ${state.errorCount}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(MaterialTheme.colorScheme.errorContainer)
+                                                .padding(horizontal = 6.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
+                                val filterHint = buildList {
+                                    state.selectedTag?.let { add("[${it}]") }
+                                    if (state.showErrorOnly) add("仅错误")
+                                }.joinToString(" · ")
                                 Text(
-                                    File(filePath).name,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    if (state.isLoading) "Loading..." else "${state.totalCount} lines",
+                                    if (state.isLoading) "Loading..."
+                                    else if (filterHint.isNotEmpty()) "${state.totalCount} lines · $filterHint"
+                                    else "${state.totalCount} lines",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -310,6 +332,41 @@ fun LogViewerScreen(
                                             onClick = { showMenu = false; isSearchActive = true },
                                             leadingIcon = { Icon(Icons.Default.Search, null) }
                                         )
+                                        // ✨ 仅看错误开关
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    if (state.showErrorOnly) "✅ 仅看错误（${state.errorCount}）" else "仅看错误（${state.errorCount}）"
+                                                )
+                                            },
+                                            onClick = { viewModel.toggleErrorOnly(!state.showErrorOnly) },
+                                            leadingIcon = { Icon(Icons.Default.BugReport, null) }
+                                        )
+                                        // ✨ tag 快捷过滤：有索引时展示
+                                        if (state.availableTags.isNotEmpty()) {
+                                            HorizontalDivider()
+                                            state.availableTags.take(8).forEach { t ->
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Text(
+                                                            if (state.selectedTag == t) "✅ [$t]" else "[$t]",
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                    },
+                                                    onClick = {
+                                                        viewModel.filterByTag(if (state.selectedTag == t) null else t)
+                                                    }
+                                                )
+                                            }
+                                            if (state.selectedTag != null) {
+                                                DropdownMenuItem(
+                                                    text = { Text("清除 tag 过滤") },
+                                                    onClick = { viewModel.filterByTag(null) },
+                                                    leadingIcon = { Icon(Icons.Default.Close, null) }
+                                                )
+                                            }
+                                        }
                                         HorizontalDivider()
                                         DropdownMenuItem(
                                             text = { Text("滑动到顶部") },

@@ -131,7 +131,7 @@ object AntFarmWalkDonateTask {
         val resultModel = exchangeResponse.optJSONObject("donateExchangeResultModel")
         val donatedSteps = resultModel?.optInt("userCount", stepCount) ?: stepCount
         val amount = resultModel?.optJSONObject("userAmount")?.optDouble("amount", 0.0) ?: 0.0
-        Log.other("庄园捐步❤️[$donatedSteps 步]#兑换$amount 元公益金")
+        Log.life("庄园捐步❤️[$donatedSteps 步]#兑换$amount 元公益金")
         return true
     }
 

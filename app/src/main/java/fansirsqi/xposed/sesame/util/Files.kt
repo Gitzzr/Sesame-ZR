@@ -304,6 +304,21 @@ object Files {
     fun getErrorLogFile(): File = ensureLogFile(getLogFile("error"))
 
     @JvmStatic
+    fun getOceanLogFile(): File = ensureLogFile(getLogFile("ocean"))
+
+    @JvmStatic
+    fun getOrchardLogFile(): File = ensureLogFile(getLogFile("orchard"))
+
+    @JvmStatic
+    fun getStallLogFile(): File = ensureLogFile(getLogFile("stall"))
+
+    @JvmStatic
+    fun getLifeLogFile(): File = ensureLogFile(getLogFile("life"))
+
+    @JvmStatic
+    fun getRuntimeLogFile(): File = ensureLogFile(getLogFile("runtime"))
+
+    @JvmStatic
     fun close(c: Closeable?) {
         try {
             c?.close()

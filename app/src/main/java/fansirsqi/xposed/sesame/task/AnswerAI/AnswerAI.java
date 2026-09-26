@@ -128,7 +128,7 @@ public class AnswerAI extends Model {
                 Log.forest(msg);
                 break;
             default:
-                Log.other(msg);
+                Log.life(msg);
                 break;
         }
     }

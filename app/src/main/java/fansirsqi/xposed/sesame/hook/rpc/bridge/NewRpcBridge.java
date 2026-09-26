@@ -168,7 +168,7 @@ public class NewRpcBridge implements RpcBridge {
                     }
                 }
                 if (newRpcInstance == null) {
-                    Log.record(TAG, "get newRpcInstance null");
+                    Log.runtimeWarn(TAG, "get newRpcInstance null");
                     throw new RuntimeException("get newRpcInstance is null");
                 }
             }
@@ -193,9 +193,9 @@ public class NewRpcBridge implements RpcBridge {
                     , loader.loadClass("com.alibaba.ariver.engine.api.bridge.model.ApiContext")
                     , bridgeCallbackClazz
             );
-            Log.record(TAG, "get newRpcCallMethod successfully");
+            Log.runtime(TAG, "get newRpcCallMethod successfully");
         } catch (Exception e) {
-            Log.record(TAG, "get newRpcCallMethod err:");
+            Log.runtimeWarn(TAG, "get newRpcCallMethod err:");
             throw e;
         }
     }
@@ -262,7 +262,7 @@ public class NewRpcBridge implements RpcBridge {
 
         // 如果RPC组件未准备好，尝试重新初始化一次
         if (localNewRpcCallMethod == null) {
-             Log.record(TAG, "RPC方法为null，尝试重新初始化...");
+             Log.runtimeWarn(TAG, "RPC方法为null，尝试重新初始化...");
             try {
                 load();
                 // 重新加载初始化后的变量
@@ -271,7 +271,7 @@ public class NewRpcBridge implements RpcBridge {
                 localNewRpcInstance = newRpcInstance;
                 localLoader = loader;
                 localBridgeCallbackClazzArray = bridgeCallbackClazzArray;
-                 Log.record(TAG, "RPC重新初始化成功");
+                 Log.runtime(TAG, "RPC重新初始化成功");
             } catch (Exception e) {
                 Log.error(TAG, "RPC重新初始化失败:");
                 Log.printStackTrace(e);
@@ -323,7 +323,7 @@ public class NewRpcBridge implements RpcBridge {
                                                         jsonString = (String) ReflectionHelper.callMethod(obj, "toJSONString");
                                                     } catch (Exception retryException) {
                                                         // 重试后仍失败，记录日志并标记错误，触发外层RPC重试
-                                                        Log.record(TAG, "toJSONString 重试后仍然失败，将触发整个 RPC 请求重试: " + retryException.getMessage());
+                                                        Log.runtimeWarn(TAG, "toJSONString 重试后仍然失败，将触发整个 RPC 请求重试: " + retryException.getMessage());
                                                         rpcEntity.setResponseObject(obj, null);
                                                         rpcEntity.setError();
                                                         return null;
@@ -389,7 +389,7 @@ public class NewRpcBridge implements RpcBridge {
 //                                    Notify.sendNewNotification(TimeUtil.getTimeStr() + " | 网络异常: " + methodName, response);
 //                                }//做得多错的多，不做就不会错
                                 if (BaseModel.Companion.getTimeoutRestart().getValue()) {
-                                    Log.record(TAG, "尝试重新登录");
+                                    Log.runtimeWarn(TAG, "尝试重新登录");
                                     ApplicationHook.reLoginByBroadcast();
                                 }
                             }

@@ -120,6 +120,11 @@ class MainActivity : ComponentActivity() {
         data object OpenOtherLog : MainUiEvent()
         data object OpenAllLog : MainUiEvent()
         data object OpenDebugLog : MainUiEvent()
+        data object OpenOceanLog : MainUiEvent()
+        data object OpenOrchardLog : MainUiEvent()
+        data object OpenStallLog : MainUiEvent()
+        data object OpenLifeLog : MainUiEvent()
+        data object OpenRuntimeLog : MainUiEvent()
         data class ToggleIconHidden(val isHidden: Boolean) : MainUiEvent()
         data object OpenCaptureLog : MainUiEvent()
         data object OpenExtend : MainUiEvent()
@@ -139,6 +144,11 @@ class MainActivity : ComponentActivity() {
             MainUiEvent.OpenErrorLog -> openLogFile(Files.getErrorLogFile())
             MainUiEvent.OpenAllLog -> openLogFile(Files.getRecordLogFile())
             MainUiEvent.OpenDebugLog -> openLogFile(Files.getDebugLogFile())
+            MainUiEvent.OpenOceanLog -> openLogFile(Files.getOceanLogFile())
+            MainUiEvent.OpenOrchardLog -> openLogFile(Files.getOrchardLogFile())
+            MainUiEvent.OpenStallLog -> openLogFile(Files.getStallLogFile())
+            MainUiEvent.OpenLifeLog -> openLogFile(Files.getLifeLogFile())
+            MainUiEvent.OpenRuntimeLog -> openLogFile(Files.getRuntimeLogFile())
             is MainUiEvent.ToggleIconHidden -> {
                 val shouldHide = event.isHidden
                 getSharedPreferences(PREFERENCES_KEY, MODE_PRIVATE).edit { putBoolean("is_icon_hidden", shouldHide) }

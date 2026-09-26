@@ -102,7 +102,7 @@ public class GeminiAI implements AnswerAIInterface {
                 }
                 String json = response.body().string();
                 if (!response.isSuccessful()) {
-                    Log.other("Gemini请求失败");
+                    Log.life("Gemini请求失败");
                     Log.record(TAG, "Gemini接口异常：" + json);
                     return result;
                 }
@@ -146,7 +146,7 @@ public class GeminiAI implements AnswerAIInterface {
                     }
                 } catch (NumberFormatException e) {
                     // 如果不是纯数字，尝试模糊匹配答案内容
-                    Log.other("AI🧠回答，非序号格式：" + answerResult);
+                    Log.life("AI🧠回答，非序号格式：" + answerResult);
                 }
 
                 // 模糊匹配答案内容

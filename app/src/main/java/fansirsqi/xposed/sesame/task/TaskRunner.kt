@@ -70,7 +70,7 @@ class CoroutineTaskRunner(allModels: List<Model>) {
         }
 
         try {
-            Log.record(TAG, "🚀 开始执行任务流程 (并发数: $MAX_CONCURRENCY)")
+            Log.runtime(TAG, "🚀 开始执行任务流程 (并发数: $MAX_CONCURRENCY)")
 
             CustomSettings.loadForTaskRunner()
             val status = CustomSettings.getOnceDailyStatus(enableLog = true)
@@ -125,7 +125,7 @@ class CoroutineTaskRunner(allModels: List<Model>) {
             runCounter.record(TaskRunOutcome.SKIPPED_FILTERED)
         }
 
-        Log.record(TAG, "🔄 [第 $round/$totalRounds 轮] 开始，共 ${tasksToRun.size} 个任务")
+        Log.runtime(TAG, "🔄 [第 $round/$totalRounds 轮] 开始，共 ${tasksToRun.size} 个任务")
 
         // 2. 并发执行
         // 使用 Semaphore 限制并发数量
@@ -149,7 +149,7 @@ class CoroutineTaskRunner(allModels: List<Model>) {
         deferreds.awaitAll()
 
         val roundTime = System.currentTimeMillis() - roundStartTime
-        Log.record(TAG, "✅ [第 $round/$totalRounds 轮] 结束，耗时: ${roundTime}ms")
+        Log.runtime(TAG, "✅ [第 $round/$totalRounds 轮] 结束，耗时: ${roundTime}ms")
     }
 
     /**
@@ -163,7 +163,7 @@ class CoroutineTaskRunner(allModels: List<Model>) {
         val timeout = task.runnerTimeoutMillis
 
         try {
-            Log.record(TAG, "▶️ 启动: $taskId")
+            Log.runtime(TAG, "▶️ 启动: $taskId")
             task.addRunCents()
 
             val outcome = withTimeout(timeout) {
@@ -193,13 +193,13 @@ class CoroutineTaskRunner(allModels: List<Model>) {
             taskExecutionTimes[taskId] = time
             when (outcome) {
                 TaskRunOutcome.COMPLETED ->
-                    Log.record(TAG, "✅ 完成: $taskId (耗时: ${time}ms)")
+                    Log.runtime(TAG, "✅ 完成: $taskId (耗时: ${time}ms)")
                 TaskRunOutcome.STARTED_BACKGROUND ->
-                    Log.record(TAG, "✨ 后台启动: $taskId (启动耗时: ${time}ms)")
+                    Log.runtime(TAG, "✨ 后台启动: $taskId (启动耗时: ${time}ms)")
                 TaskRunOutcome.FAILED ->
                     Log.error(TAG, "❌ 任务异常结束: $taskId (耗时: ${time}ms)")
                 TaskRunOutcome.SKIPPED_RUNNING ->
-                    Log.record(TAG, "⏭️ 跳过: $taskId 仍在运行")
+                    Log.runtime(TAG, "⏭️ 跳过: $taskId 仍在运行")
                 else -> Unit
             }
 
@@ -220,7 +220,7 @@ class CoroutineTaskRunner(allModels: List<Model>) {
     private fun scheduleNext() {
         try {
             ApplicationHook.scheduleNextExecutionInternal(ApplicationHook.lastExecTime)
-            Log.record(TAG, "📅 已调度下次执行")
+            Log.runtime(TAG, "📅 已调度下次执行")
         } catch (e: Exception) {
             Log.printStackTrace(TAG, "调度失败", e)
         }
@@ -237,22 +237,22 @@ class CoroutineTaskRunner(allModels: List<Model>) {
         val avgTime = if (taskExecutionTimes.isNotEmpty()) taskExecutionTimes.values.average() else 0.0
         val snapshot = runCounter.snapshot()
 
-        Log.record(TAG, "📈 === 执行统计 (并发模式) ===")
-        Log.record(TAG, "⏱️ 总耗时: ${totalTime}ms")
-        Log.record(
+        Log.runtime(TAG, "📈 === 执行统计 (并发模式) ===")
+        Log.runtime(TAG, "⏱️ 总耗时: ${totalTime}ms")
+        Log.runtime(
             TAG,
             "✅ 完成: ${snapshot.completed} | ✨ 后台: ${snapshot.startedBackground} | " +
                 "⏰ 超时: ${snapshot.timedOut} | ❌ 异常: ${snapshot.failed} | ⏭️ 跳过: ${snapshot.skipped}"
         )
         if (taskExecutionTimes.isNotEmpty()) {
-            Log.record(TAG, "⚡ 平均耗时: %.0fms".format(avgTime))
+            Log.runtime(TAG, "⚡ 平均耗时: %.0fms".format(avgTime))
         }
 
         val nextTime = ApplicationHook.nextExecutionTime
         if (nextTime > 0) {
-            Log.record(TAG, "📅 下次: ${TimeUtil.getCommonDate(nextTime)}")
+            Log.runtime(TAG, "📅 下次: ${TimeUtil.getCommonDate(nextTime)}")
         }
-        Log.record(TAG, "============================")
+        Log.runtime(TAG, "============================")
     }
 
     /**
