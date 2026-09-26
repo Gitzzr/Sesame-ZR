@@ -19,6 +19,10 @@ public class CollectEnergyEntity {
     private Integer collectCount = 0;
     // 尝试次数
     private Integer tryCount = 0;
+    // 续收链深度（服务端返回 canBeRobbedAgain 时递归再收的次数），用于限制无界递归。
+    // 注意：Kotlin 与 Java 混合编译时 Kotlin 先编译，看不到 lombok 生成的 getter，
+    // 因此这里与 needDouble / fromTag 一样声明为 public 字段，供 Kotlin 直接读取。
+    public Integer chainCount = 0;
     // 是否需要翻倍
     @Setter
     public Boolean needDouble = false;
@@ -101,6 +105,24 @@ public class CollectEnergyEntity {
      */
     public void resetTryCount() {
         this.tryCount = 0;
+    }
+    /**
+     * 增加续收链深度。
+     * <p>
+     * 该计数独立于 {@link #tryCount}：tryCount 由失败重试路径使用且会被 {@link #resetTryCount()} 清零，
+     * 无法约束「服务端持续返回 canBeRobbedAgain」造成的递归续收。
+     *
+     * @return 更新后的续收链深度
+     */
+    public Integer addChainCount() {
+        this.chainCount += 1;
+        return chainCount;
+    }
+    /**
+     * 重置续收链深度为 0（新一轮收取开始时调用）。
+     */
+    public void resetChainCount() {
+        this.chainCount = 0;
     }
     /**
      * 设置需要翻倍，并增加收集次数。
