@@ -32,6 +32,7 @@ import fansirsqi.xposed.sesame.task.ModelTask;
 import fansirsqi.xposed.sesame.task.TaskStatus;
 import fansirsqi.xposed.sesame.task.antForest.AntForestRpcCall;
 import fansirsqi.xposed.sesame.util.GlobalThreadPools;
+import fansirsqi.xposed.sesame.task.ActionEntry;
 import fansirsqi.xposed.sesame.task.DailyTaskLogPolicy;
 import fansirsqi.xposed.sesame.task.DailyTaskLogRecorder;
 import fansirsqi.xposed.sesame.task.RewardEntry;
@@ -54,8 +55,70 @@ public class AntOcean extends ModelTask {
     public Map<String, Boolean> dailyCheckSwitches() {
         Map<String, Boolean> switches = new LinkedHashMap<>();
         switches.put("海洋任务奖励", dailyOceanTask != null && Boolean.TRUE.equals(dailyOceanTask.getValue()));
+        switches.put("海洋任务", dailyOceanTask != null && Boolean.TRUE.equals(dailyOceanTask.getValue()));
+        switches.put("海洋答题", dailyOceanTask != null && Boolean.TRUE.equals(dailyOceanTask.getValue()));
         switches.put("潘多拉能量", PDL_task != null && Boolean.TRUE.equals(PDL_task.getValue()));
+        switches.put("AI摸鱼", aiFish != null && Boolean.TRUE.equals(aiFish.getValue()));
+        switches.put("制作万能拼图", exchangeProp != null && Boolean.TRUE.equals(exchangeProp.getValue()));
+        switches.put("使用万能拼图", usePropByType != null && Boolean.TRUE.equals(usePropByType.getValue()));
+        switches.put("保护海洋兑换", userprotectType != null
+                && !Integer.valueOf(protectType.DONT_PROTECT).equals(userprotectType.getValue()));
         return switches;
+    }
+
+    /** 记一次海洋一天一次的动作；失败只记日志，不抛出。static 以便静态流程调用。 */
+    private static void recordOceanAction(String kind, String title, String detail, boolean success, String reason) {
+        DailyTaskLogRecorder.INSTANCE.recordAction(
+                UserMap.INSTANCE.getCurrentUid(),
+                new ActionEntry(System.currentTimeMillis(), DailyTaskLogPolicy.MODULE_OCEAN,
+                        kind, title, detail, success, reason),
+                System.currentTimeMillis()
+        );
+    }
+
+    /**
+     * 摸鱼只记已有结果的事件：完成、领奖、找回、摸鱼。
+     * 轮询上限、主页结构未知是停止条件，不记成一次失败。
+     */
+    private static void recordAiFishEvent(String event) {
+        if (event.startsWith("AI摸鱼任务完成已确认") || event.startsWith("AI摸鱼任务已直接领取")) {
+            recordOceanAction(DailyTaskLogPolicy.ACTION_TASK, "AI摸鱼", event, true, event);
+        } else if (event.startsWith("AI摸鱼任务完成未受理") || event.startsWith("AI摸鱼任务状态未推进")) {
+            recordOceanAction(DailyTaskLogPolicy.ACTION_TASK, "AI摸鱼", event, false, event);
+        } else if (event.startsWith("AI摸鱼奖励领取已确认")) {
+            recordOceanAction(DailyTaskLogPolicy.ACTION_TASK, "AI摸鱼", event, true, event);
+        } else if (event.startsWith("AI摸鱼奖励领取未受理") || event.startsWith("AI摸鱼奖励状态未推进")) {
+            recordOceanAction(DailyTaskLogPolicy.ACTION_TASK, "AI摸鱼", event, false, event);
+        } else if (event.startsWith("AI摸鱼被抓的鱼已找回")) {
+            recordOceanAction(DailyTaskLogPolicy.ACTION_TASK, "AI摸鱼", event, true, event);
+        } else if (event.startsWith("AI摸鱼未找到可用找回任务")
+                || event.startsWith("AI摸鱼找回接口未受理")
+                || event.startsWith("AI摸鱼找回状态未确认")) {
+            recordOceanAction(DailyTaskLogPolicy.ACTION_TASK, "AI摸鱼", event, false, event);
+        } else if (event.startsWith("AI摸鱼成功")) {
+            String total = "";
+            int start = event.indexOf("累计");
+            if (start >= 0) {
+                total = event.substring(start);
+            }
+            recordOceanAction(DailyTaskLogPolicy.ACTION_TASK, "AI摸鱼", total, true, event);
+        } else if (event.startsWith("AI摸鱼动作未受理") || event.startsWith("AI摸鱼状态无进展")) {
+            recordOceanAction(DailyTaskLogPolicy.ACTION_TASK, "AI摸鱼", event, false, event);
+        }
+    }
+
+    private static String oceanReason(JSONObject jo, String fallback) {
+        String reason = jo.optString("resultDesc");
+        if (reason.isEmpty()) {
+            reason = jo.optString("desc");
+        }
+        if (reason.isEmpty()) {
+            reason = jo.optString("message");
+        }
+        if (reason.isEmpty()) {
+            reason = jo.optString("memo");
+        }
+        return reason.isEmpty() ? fallback : reason;
     }
 
     private static void recordOceanReward(String title, String detail, boolean success, String reason) {
@@ -240,6 +303,7 @@ public class AntOcean extends ModelTask {
             }).run();
             for (String event : result.getEvents()) {
                 Log.ocean("神奇海洋🌊[" + event + "]");
+                recordAiFishEvent(event);
             }
         } catch (Throwable t) {
             Log.printStackTrace(TAG, "AI摸鱼执行异常:", t);
@@ -767,7 +831,7 @@ public class AntOcean extends ModelTask {
                             done = true;
                         } else {
                             Log.error(TAG, "海洋奖励🌊领取失败：" + joAward);
-                            recordOceanReward(taskTitle, awardCount + "拼图", false, "领取失败");
+                            recordOceanReward(taskTitle, awardCount + "拼图", false, oceanReason(joAward, "领取失败"));
                         }
                         GlobalThreadPools.sleepCompat(500);
                     } else if (TaskStatus.TODO.name().equals(taskStatus)) {
@@ -798,9 +862,13 @@ public class AntOcean extends ModelTask {
                             } else {
                                 if (ResChecker.checkRes(TAG, joFinishTask)) {
                                     Log.ocean("海洋任务🌊完成[" + taskTitle + "]");
+                                    recordOceanAction(DailyTaskLogPolicy.ACTION_TASK, "海洋任务",
+                                            taskTitle, true, "完成");
                                     done = true;
                                 } else {
                                     Log.error(TAG, "海洋任务🌊完成失败：" + joFinishTask);
+                                    recordOceanAction(DailyTaskLogPolicy.ACTION_TASK, "海洋任务",
+                                            taskTitle, false, oceanReason(joFinishTask, "完成失败"));
                                 }
                             }
 
@@ -834,11 +902,16 @@ public class AntOcean extends ModelTask {
                 JSONObject submitJson = new JSONObject(submitResponse);
                 if (submitJson.getInt("resultCode") == 200) {
                     Log.ocean(TAG, "🌊海洋答题成功");
+                    recordOceanAction(DailyTaskLogPolicy.ACTION_TASK, "海洋答题", "", true, "答题成功");
                 } else {
                     Log.error(TAG, "海洋答题失败：" + submitJson);
+                    recordOceanAction(DailyTaskLogPolicy.ACTION_TASK, "海洋答题", "", false,
+                            oceanReason(submitJson, "答题失败"));
                 }
             } else {
                 Log.error(TAG, "海洋获取问题失败：" + questionJson);
+                recordOceanAction(DailyTaskLogPolicy.ACTION_TASK, "海洋答题", "", false,
+                        oceanReason(questionJson, "获取问题失败"));
             }
         } catch (Throwable t) {
             Log.printStackTrace(TAG, "海洋答题错误", t);
@@ -870,7 +943,8 @@ public class AntOcean extends ModelTask {
                             Log.ocean("海洋奖励🌊[领取:" + taskTitle + "]获得潘多拉能量x" + awardCount);
                             recordOceanReward(taskTitle, "潘多拉能量x" + awardCount, true, null);
                         } else {
-                            recordOceanReward(taskTitle, "潘多拉能量x" + awardCount, false, "领取失败");
+                            recordOceanReward(taskTitle, "潘多拉能量x" + awardCount, false,
+                                    oceanReason(receiveTaskJson, "领取失败"));
                             if (receiveTaskJson.has("message")) {
                                 Log.record(TAG, "领取任务奖励失败: " + receiveTaskJson.getString("message"));
                             } else {
@@ -939,9 +1013,13 @@ public class AntOcean extends ModelTask {
                     }
                     String str = "保护海洋生态🏖️[" + itemName + "]#第" + appliedTimes + "次" + "-获得奖励" + award;
                     Log.ocean(str);
+                    recordOceanAction(DailyTaskLogPolicy.ACTION_PROP_EXCHANGE, "保护海洋兑换",
+                            itemName + " 第" + appliedTimes + "次 " + award, true, null);
                     GlobalThreadPools.sleepCompat(300);
                 } else {
                     Log.error("保护海洋生态🏖️[" + itemName + "]#发生未知错误，停止申请");
+                    recordOceanAction(DailyTaskLogPolicy.ACTION_PROP_EXCHANGE, "保护海洋兑换",
+                            itemName, false, oceanReason(jo, "兑换失败"));
                     break;
                 }
                 GlobalThreadPools.sleepCompat(300);
@@ -997,15 +1075,23 @@ public class AntOcean extends ModelTask {
                 if (ResChecker.checkRes(TAG + "查询海洋道具兑换列表失败:", propListObj)) {
                     int duplicatePieceNum = propListObj.getInt("duplicatePieceNum");
                     if (duplicatePieceNum < 10) {
+                        recordOceanAction(DailyTaskLogPolicy.ACTION_PROP_EXCHANGE, "制作万能拼图",
+                                "碎片" + duplicatePieceNum, true, "碎片不足10");
                         return;
                     }
                     String exchangeResultJson = AntOceanRpcCall.exchangeProp();
                     JSONObject exchangeResultObj = new JSONObject(exchangeResultJson);
-                    String exchangedPieceNum = exchangeResultObj.getString("duplicatePieceNum");
-                    String exchangeNum = exchangeResultObj.getString("exchangeNum");
+                    String exchangedPieceNum = exchangeResultObj.optString("duplicatePieceNum");
+                    String exchangeNum = exchangeResultObj.optString("exchangeNum");
                     if (ResChecker.checkRes(TAG + "海洋道具兑换失败:", exchangeResultObj)) {
                         Log.ocean("神奇海洋🏖️[万能拼图]制作" + exchangeNum + "张,剩余" + exchangedPieceNum + "张碎片");
+                        recordOceanAction(DailyTaskLogPolicy.ACTION_PROP_EXCHANGE, "制作万能拼图",
+                                "制作" + exchangeNum + "张 剩余" + exchangedPieceNum + "碎片", true, null);
                         GlobalThreadPools.sleepCompat(1000);
+                    } else {
+                        recordOceanAction(DailyTaskLogPolicy.ACTION_PROP_EXCHANGE, "制作万能拼图",
+                                "", false, oceanReason(exchangeResultObj, "制作失败"));
+                        shouldContinue = false;
                     }
                 } else {
                     shouldContinue = false;
@@ -1060,13 +1146,18 @@ public class AntOcean extends ModelTask {
                             if (!idSet.isEmpty()) {
                                 String usePropResult = AntOceanRpcCall.usePropByType(order, idSet);
                                 JSONObject usePropResultObj = new JSONObject(usePropResult);
+                                int userCount = idSet.size();
                                 if (ResChecker.checkRes(TAG + "使用海洋万能拼图失败:", usePropResultObj)) {
-                                    int userCount = idSet.size();
                                     Log.ocean("神奇海洋🏖️[万能拼图]使用" + userCount + "张，获得[" + name + "]剩余" + holdsNum + "张");
+                                    recordOceanAction(DailyTaskLogPolicy.ACTION_PROP_USE, "使用万能拼图",
+                                            "使用" + userCount + "张 " + name + " 剩余" + holdsNum + "张", true, null);
                                     GlobalThreadPools.sleepCompat(1000);
                                     if (holdsNum <= 0) {
                                         break th;
                                     }
+                                } else {
+                                    recordOceanAction(DailyTaskLogPolicy.ACTION_PROP_USE, "使用万能拼图",
+                                            name, false, oceanReason(usePropResultObj, "使用失败"));
                                 }
                             }
                         }

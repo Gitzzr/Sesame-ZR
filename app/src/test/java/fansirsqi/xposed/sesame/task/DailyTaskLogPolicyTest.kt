@@ -24,6 +24,15 @@ class DailyTaskLogPolicyTest {
             amount = "66g", success = success, reason = reason
         )
 
+    private fun action(title: String, success: Boolean, reason: String? = null, detail: String = "") =
+        ActionEntry(
+            at = 1L, module = DailyTaskLogPolicy.MODULE_FARM, kind = DailyTaskLogPolicy.ACTION_TASK,
+            title = title, detail = detail, success = success, reason = reason
+        )
+
+    private fun reward(module: String, title: String, detail: String, success: Boolean) =
+        RewardEntry(at = 1L, module = module, title = title, detail = detail, success = success, reason = null)
+
     @Test
     fun `同一天的记录会追加而不是覆盖`() {
         val first = DailyTaskLogPolicy.addEnergyRain(null, uid, "2026-09-27", rain(10, true), 1L)
@@ -86,6 +95,57 @@ class DailyTaskLogPolicyTest {
         assertFalse(status.getValue("能量雨").missing)
         assertTrue(status.getValue("好友浇水").missing)
         assertNull(status.getValue("好友浇水").lastFailReason)
+    }
+
+    @Test
+    fun `同一天的动作会追加且跨日清空`() {
+        val first = DailyTaskLogPolicy.addAction(null, uid, "2026-09-27", action("庄园签到", true), 1L)
+        val sameDay = DailyTaskLogPolicy.addAction(first, uid, "2026-09-27", action("捐蛋", false, "需验证"), 2L)
+        assertEquals(listOf("庄园签到", "捐蛋"), sameDay.actions.map { it.title })
+
+        val nextDay = DailyTaskLogPolicy.addAction(sameDay, uid, "2026-09-28", action("庄园签到", true), 3L)
+        assertEquals("2026-09-28", nextDay.day)
+        assertEquals(1, nextDay.actions.size)
+        assertTrue(nextDay.energyRain.isEmpty())
+        assertTrue(nextDay.rewards.isEmpty())
+    }
+
+    @Test
+    fun `同模块奖励和动作按标题分开计`() {
+        var log: DailyTaskLog? = null
+        log = DailyTaskLogPolicy.addReward(
+            log, uid, "2026-09-27",
+            reward(DailyTaskLogPolicy.MODULE_FARM, "喂鸡奖励", "10g", true), 1L
+        )
+        log = DailyTaskLogPolicy.addReward(
+            log, uid, "2026-09-27",
+            reward(DailyTaskLogPolicy.MODULE_FARM, "家庭奖励", "饲料 x1", false), 2L
+        )
+        log = DailyTaskLogPolicy.addReward(
+            log, uid, "2026-09-27",
+            reward(DailyTaskLogPolicy.MODULE_OCEAN, "每日任务", "2拼图", true), 3L
+        )
+        log = DailyTaskLogPolicy.addReward(
+            log, uid, "2026-09-27",
+            reward(DailyTaskLogPolicy.MODULE_OCEAN, "海域任务", "潘多拉能量x3", false), 4L
+        )
+        log = DailyTaskLogPolicy.addAction(log, uid, "2026-09-27", action("抽抽乐", true, detail = "已完成"), 5L)
+        log = DailyTaskLogPolicy.addAction(log, uid, "2026-09-27", action("捐蛋", false, "需验证"), 6L)
+
+        val farmTask = DailyTaskLogPolicy.countFor("庄园任务奖励", log!!)
+        val family = DailyTaskLogPolicy.countFor("家庭奖励", log)
+        val oceanTask = DailyTaskLogPolicy.countFor("海洋任务奖励", log)
+        val pandora = DailyTaskLogPolicy.countFor("潘多拉能量", log)
+        val draw = DailyTaskLogPolicy.countFor("抽抽乐", log)
+        val missing = DailyTaskLogPolicy.countFor("厨房做菜", log)
+
+        assertEquals(Triple(1, 0, null), farmTask)
+        assertEquals(1, family.second)
+        assertEquals(Triple(1, 0, null), oceanTask)
+        assertEquals(1, pandora.second)
+        assertEquals(Triple(1, 0, null), draw)
+        assertEquals(Triple(0, 0, null), missing)
+        assertEquals("需验证", DailyTaskLogPolicy.countFor("捐蛋", log).third)
     }
 
     @Test

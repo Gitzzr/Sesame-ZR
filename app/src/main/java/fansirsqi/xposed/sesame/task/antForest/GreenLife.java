@@ -1,5 +1,6 @@
 package fansirsqi.xposed.sesame.task.antForest;
 
+import fansirsqi.xposed.sesame.task.DailyTaskLogPolicy;
 import fansirsqi.xposed.sesame.util.CoroutineUtils;
 import org.json.JSONObject;
 import fansirsqi.xposed.sesame.util.Log;
@@ -20,11 +21,20 @@ public class GreenLife {
                         if (data.optBoolean("canSendEnergy", false)) {
                             int receivedEnergyAmount = data.getInt("receivedEnergyAmount");
                             Log.forest("集市逛街🛍[获得:能量" + receivedEnergyAmount + "g]");
+                            AntForest.recordForestAction(
+                                    DailyTaskLogPolicy.ACTION_TASK, "森林集市",
+                                    receivedEnergyAmount + "g", true, null);
                         }
+                    } else {
+                        // 领取响应没有可读原因时只记失败，不另写文案
+                        AntForest.recordForestAction(
+                                DailyTaskLogPolicy.ACTION_TASK, "森林集市", sourceType, false, "失败");
                     }
                 }
             } else {
                 Log.record(TAG, jo.getJSONObject("data").getString("resultCode"));
+                AntForest.recordForestAction(
+                        DailyTaskLogPolicy.ACTION_TASK, "森林集市", sourceType, false, "失败");
                 CoroutineUtils.sleepCompat(300);
             }
         } catch (Throwable t) {

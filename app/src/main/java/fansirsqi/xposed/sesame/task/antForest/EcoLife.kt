@@ -18,6 +18,14 @@ import java.util.regex.Pattern
 object EcoLife {
     val TAG: String = EcoLife::class.java.getSimpleName()
 
+    /** 绿色行动的开通、打卡和光盘行动共用一个核对项，失败原因只用响应里已有的描述。 */
+    private fun recordEcoAction(title: String, detail: String, success: Boolean, reason: String?) {
+        AntForest.recordForestAction(
+            fansirsqi.xposed.sesame.task.DailyTaskLogPolicy.ACTION_CHECKIN,
+            title, detail, success, reason
+        )
+    }
+
     /**
      * 执行绿色行动任务，包括查询任务开通状态、开通绿色任务、执行打卡任务等操作。
      * 1. 调用接口查询绿色行动的首页数据，检查是否成功。
@@ -34,7 +42,9 @@ object EcoLife {
             // 查询首页信息
             var jsonObject = JSONObject(AntForestRpcCall.ecolifeQueryHomePage())
             if (!jsonObject.optBoolean("success")) {
-                Log.record("$TAG.ecoLife.queryHomePage", jsonObject.optString("resultDesc"))
+                val resultDesc = jsonObject.optString("resultDesc", "查询失败")
+                Log.record("$TAG.ecoLife.queryHomePage", resultDesc)
+                recordEcoAction("绿色行动", "查询", false, resultDesc)
                 return
             }
             var data = jsonObject.getJSONObject("data")
@@ -80,14 +90,18 @@ object EcoLife {
     fun openEcoLife(): Boolean {
         val jsonObject = JSONObject(AntForestRpcCall.ecolifeOpenEcolife())
         if (!jsonObject.optBoolean("success")) {
-            Log.record("$TAG.ecoLife.openEcolife", jsonObject.optString("resultDesc"))
+            val resultDesc = jsonObject.optString("resultDesc", "开通失败")
+            Log.record("$TAG.ecoLife.openEcolife", resultDesc)
+            recordEcoAction("绿色行动", "开通", false, resultDesc)
             return false
         }
         val opResult = JsonUtil.getValueByPath(jsonObject, "data.opResult")
         if ("true" != opResult) {
+            recordEcoAction("绿色行动", "开通", false, "开通失败")
             return false
         }
         Log.forest("绿色任务🍀报告大人，开通成功(～￣▽￣)～可以愉快的玩耍了")
+        recordEcoAction("绿色行动", "开通", true, null)
         return true
     }
 
@@ -119,10 +133,13 @@ object EcoLife {
                     val jo = JSONObject(AntForestRpcCall.ecolifeTick(actionId, dayPoint, source))
                     if (ResChecker.checkRes(TAG, jo)) {
                         Log.forest("绿色打卡🍀[$actionName]") // 成功打卡日志
+                        recordEcoAction("绿色行动", actionName, true, null)
                     } else {
                         // 记录失败原因
-                        Log.error(TAG + jo.getString("resultDesc"))
+                        val resultDesc = jo.optString("resultDesc", "打卡失败")
+                        Log.error(TAG + resultDesc)
                         Log.error(TAG + jo)
+                        recordEcoAction("绿色行动", actionName, false, resultDesc)
                     }
                 }
             }
@@ -251,6 +268,7 @@ object EcoLife {
             Status.setFlagToday("EcoLife::photoGuangPan")
             Log.forest(toastMsg)
             Toast.show(toastMsg)
+            recordEcoAction("绿色行动", "光盘行动", true, null)
         } catch (t: Throwable) {
             // 捕获异常，记录错误信息和堆栈追踪
             Log.record(TAG, "photoGuangPan err:")

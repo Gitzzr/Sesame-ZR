@@ -36,6 +36,12 @@ object DailyTaskLogRecorder {
         update(userId, now) { prev, day -> DailyTaskLogPolicy.addGift(prev, userId!!, day, entry, now) }
     }
 
+    /** 记录一次有日次数上限的动作（任务、打卡、道具使用、道具兑换）。 */
+    @Synchronized
+    fun recordAction(userId: String?, entry: ActionEntry, now: Long = System.currentTimeMillis()) {
+        update(userId, now) { prev, day -> DailyTaskLogPolicy.addAction(prev, userId!!, day, entry, now) }
+    }
+
     /** 记录一次任务奖励领取（森林 / 庄园 / 海洋）。 */
     @Synchronized
     fun recordReward(userId: String?, entry: RewardEntry, now: Long = System.currentTimeMillis()) {
