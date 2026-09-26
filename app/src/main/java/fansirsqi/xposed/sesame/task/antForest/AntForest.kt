@@ -3474,17 +3474,20 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                 continue
             }
             val targetTaskId = "TAGET|$targetTime"
-            if (!hasChildTask(targetTaskId)) {
-                addChildTask(ChildModelTask(targetTaskId, "TAGET", func, targetTime))
-                Log.record(
-                    TAG,
-                    "添加定时使用" + propName + "[" + UserMap.getCurrentMaskName() + "]在[" + TimeUtil.getCommonDate(
-                        targetTime
-                    ) + "]执行"
-                )
-            } else {
-                addChildTask(ChildModelTask(targetTaskId, "TAGET", func, targetTime))
+            if (hasChildTask(targetTaskId)) {
+                // ⚠️ 同 ID 子任务已在等待中（childTaskMap 会在子任务执行完成后才移除），
+                // 此时重复 addChildTask 会先 cancel 掉正在等待的任务再重新注册，
+                // 既造成「调度→取消」空转风暴（实测峰值 7.5 次/秒），
+                // 又会让任务永远等不到目标时刻。ID 已包含 targetTime，同 ID 即同执行时刻，直接跳过。
+                continue
             }
+            addChildTask(ChildModelTask(targetTaskId, "TAGET", func, targetTime))
+            Log.record(
+                TAG,
+                "添加定时使用" + propName + "[" + UserMap.getCurrentMaskName() + "]在[" + TimeUtil.getCommonDate(
+                    targetTime
+                ) + "]执行"
+            )
         }
     }
 
