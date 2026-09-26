@@ -260,14 +260,14 @@ abstract class ModelTask : Model() {
 
         val acquiredGate = !force && executionGate.tryAcquire()
         if (!force && !acquiredGate) {
-            Log.record(TAG, "任务 ${getName()} 正在运行，跳过启动")
+            Log.runtime(TAG, "任务 ${getName()} 正在运行，跳过启动")
             return TaskLaunchResult(Job().apply { complete() }, false)
         }
 
         val job = scope.launch(start = CoroutineStart.LAZY) {
             executionMutex.withLock {
                 if (!isEnable || check() != true) {
-                    Log.record(TAG, "任务 ${getName()} 不满足执行条件")
+                    Log.runtime(TAG, "任务 ${getName()} 不满足执行条件")
                     return@withLock
                 }
                 try {
@@ -277,7 +277,7 @@ abstract class ModelTask : Model() {
                     executeMultiRoundTask(rounds)
                 } catch (_: CancellationException) {
                     // 协程取消属于正常控制流程（如停止任务/切换用户），不视为错误
-                    Log.record(TAG, "任务被取消: ${getName()}")
+                    Log.runtime(TAG, "任务被取消: ${getName()}")
                 } catch (e: Exception) {
                     Log.printStackTrace("startTask err: ${getName()}", e)
                 } finally {
@@ -321,7 +321,7 @@ abstract class ModelTask : Model() {
             currentCoroutineContext().ensureActive()
             if (fansirsqi.xposed.sesame.hook.ApplicationHook.offline) break
             if (getName() != "MAIN_TASK") {
-                Log.record(TAG, "开始执行第${round}轮任务: ${getName()}")
+                Log.runtime(TAG, "开始执行第${round}轮任务: ${getName()}")
             }
             // 无论什么模式，都使用顺序执行
             executeSequential(round, stats)
@@ -336,8 +336,8 @@ abstract class ModelTask : Model() {
         // 完成统计，补充结束时间
         stats.complete()
         if (getName() != "MAIN_TASK") {
-            Log.record(TAG, "任务 ${getName()} 完成，总耗时: ${endTime - startTime}ms")
-            Log.record(TAG, stats.summary)
+            Log.runtime(TAG, "任务 ${getName()} 完成，总耗时: ${endTime - startTime}ms")
+            Log.runtime(TAG, stats.summary)
         }
     }
 
@@ -352,7 +352,7 @@ abstract class ModelTask : Model() {
         } catch (e: CancellationException) {
             // 本轮被取消，记录为跳过而非失败
             stats.recordSkipped("${getName()}-Round$round")
-            Log.record(TAG, "任务本轮被取消: ${getName()}-Round$round")
+            Log.runtime(TAG, "任务本轮被取消: ${getName()}-Round$round")
             throw e
         } catch (e: Exception) {
             stats.recordTaskEnd("${getName()}-Round$round", false)

@@ -45,7 +45,12 @@ data class LogUiState(
     val isSearching: Boolean = false,
     val searchQuery: String = "",
     val totalCount: Int = 0,
-    val autoScroll: Boolean = true
+    val autoScroll: Boolean = true,
+    // ✨ 新增：tag 索引与过滤
+    val availableTags: List<String> = emptyList(),
+    val selectedTag: String? = null,
+    val showErrorOnly: Boolean = false,
+    val errorCount: Int = 0
 )
 
 /**
@@ -81,6 +86,15 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
     private val allLineOffsets = ArrayList<Long>()
     private var displayLineOffsets: List<Long> = emptyList()
     private val lineCache = LruCache<Long, String>(200)
+
+    // ✨ tag 索引：行偏移 -> 模块 tag（首次扫描时提取 [tag] 前缀）
+    private val tagIndex = HashMap<Long, String>()
+
+    companion object {
+        // 日志行内 [tag] 前缀提取正则：匹配行首时间戳后的首个 [xxx] 段
+        private val TAG_PATTERN = Regex("""^\d{2}日\s\d{2}:\d{2}:\d{2}\.\d{2,3}\s*\[([^\]]+)]""")
+        private val ERROR_MARKERS = listOf("error", "exception", "❌", "⚠️", "失败", "异常")
+    }
 
     // ✅ 使用 AtomicLong 保证线程安全
     private val lastKnownFileSize = AtomicLong(0L)
@@ -178,6 +192,9 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
                 allLineOffsets.addAll(finalOffsets)
             }
 
+            // ✨ 构建 tag 索引 + 错误计数
+            rebuildTagIndex(finalOffsets)
+
             lineCache.evictAll()
             refreshList()
 
@@ -198,14 +215,32 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
 
     private suspend fun refreshList() {
         val query = _uiState.value.searchQuery.trim()
+        val selectedTag = _uiState.value.selectedTag
+        val errorOnly = _uiState.value.showErrorOnly
 
         val resultOffsets = withContext(Dispatchers.IO) {
             synchronized(allLineOffsets) {
-                if (query.isEmpty()) {
+                if (query.isEmpty() && selectedTag == null && !errorOnly) {
                     ArrayList(allLineOffsets)
                 } else {
                     allLineOffsets.filter { offset ->
                         ensureActive()
+                        // ✨ 先用 tag 索引缩圈（O(1)），避免每行回读文件
+                        if (selectedTag != null && tagIndex[offset] != selectedTag) {
+                            return@filter false
+                        }
+                        if (errorOnly) {
+                            val cached = lineCache.get(offset)
+                            val line = cached ?: readLineAt(offset)
+                            if (line != null && cached == null) lineCache.put(offset, line)
+                            val isError = line?.let { l ->
+                                ERROR_MARKERS.any { l.contains(it, ignoreCase = true) }
+                            } ?: false
+                            if (!isError) return@filter false
+                        }
+                        if (query.isEmpty()) {
+                            return@filter true
+                        }
                         val line = readLineAt(offset)
                         line?.contains(query, ignoreCase = true) ?: false
                     }
@@ -367,6 +402,7 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
                         allLineOffsets.removeAt(0)
                     }
                 }
+                rebuildTagIndex(allLineOffsets.toList())
                 refreshList()
             }
         } catch (e: CancellationException) {
@@ -375,6 +411,67 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
             throw e // 重新抛出让协程框架处理
         } catch (e: Exception) {
             Log.printStackTrace(tag, "appendNewLines failed", e)
+        }
+    }
+
+    /**
+     * ✨ 扫描行偏移列表，提取每行 [tag] 前缀建立分组索引，并统计错误行数。
+     * 首次全量加载 O(n) 回读；增量追加时只读新增行。
+     */
+    private suspend fun rebuildTagIndex(offsets: List<Long>) = withContext(Dispatchers.IO) {
+        try {
+            synchronized(tagIndex) {
+                // 增量场景：只处理尚未索引的行
+                val pending = offsets.filter { it !in tagIndex }
+                for (offset in pending) {
+                    val line = readLineAt(offset)
+                    val tag = line?.let { TAG_PATTERN.find(it)?.groupValues?.get(1) }
+                    tagIndex[offset] = tag ?: ""
+                }
+                // 裁剪：超出 maxLines 的旧行索引同步移除
+                if (tagIndex.size > offsets.size) {
+                    val valid = offsets.toHashSet()
+                    tagIndex.keys.retainAll(valid)
+                }
+            }
+
+            val tags = synchronized(tagIndex) {
+                tagIndex.values.filter { it.isNotEmpty() }.distinct().sorted()
+            }
+            val errorCount = withContext(Dispatchers.IO) {
+                synchronized(allLineOffsets) {
+                    allLineOffsets.count { offset ->
+                        ensureActive()
+                        val line = readLineAt(offset) ?: return@count false
+                        ERROR_MARKERS.any { line.contains(it, ignoreCase = true) }
+                    }
+                }
+            }
+            _uiState.update { it.copy(availableTags = tags, errorCount = errorCount) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.printStackTrace(tag, "rebuildTagIndex failed", e)
+        }
+    }
+
+    /** ✨ 选择/取消 tag 过滤（null = 清除过滤） */
+    fun filterByTag(tag: String?) {
+        if (_uiState.value.selectedTag == tag) return
+        _uiState.update { it.copy(selectedTag = tag, isSearching = true) }
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            refreshList()
+        }
+    }
+
+    /** ✨ 「仅看错误」开关 */
+    fun toggleErrorOnly(enabled: Boolean) {
+        if (_uiState.value.showErrorOnly == enabled) return
+        _uiState.update { it.copy(showErrorOnly = enabled, isSearching = true) }
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            refreshList()
         }
     }
 

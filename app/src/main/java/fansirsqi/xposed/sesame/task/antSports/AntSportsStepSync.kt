@@ -36,7 +36,7 @@ object AntSportsStepSync {
             }
 
             diagnosticLogged.set(false)
-            Log.other("同步步数🏃🏻‍♂️[${result.verifiedStep} 步]")
+            Log.life("同步步数🏃🏻‍♂️[${result.verifiedStep} 步]")
             Status.setFlagToday(StatusFlags.FLAG_ANTSPORTS_SYNC_STEP_DONE)
             true
         } catch (t: Throwable) {

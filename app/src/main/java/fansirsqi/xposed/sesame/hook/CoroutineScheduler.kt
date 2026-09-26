@@ -120,7 +120,7 @@ class CoroutineScheduler(private val context: Context) {
                     preWakeupTime,
                     pendingIntent
                 )
-                Log.record(TAG, "⏰ 已调度预唤醒任务 | 预定: ${TimeUtil.getCommonDate(preWakeupTime)}")
+                Log.runtime(TAG, "⏰ 已调度预唤醒任务 | 预定: ${TimeUtil.getCommonDate(preWakeupTime)}")
             }
         }
     }

@@ -495,12 +495,50 @@ RPC 必须经 `RequestManager`，不要自己起网络请求。
 | --- | --- |
 | 日志实现 | `util/Log.kt` + `util/Logback.kt`（SLF4J + Logback-Android） |
 | 日志文件 | `/sdcard/Android/media/com.eg.android.AlipayGphone/sesame-TK/log/` |
-| 记录开关 | `BaseModel.recordLog`（record 日志）/ `runtimeLog`（runtime 日志） |
-| 查看器 | `ui/LogViewerActivity` + `ui/viewmodel/LogViewerViewModel.kt`（Compose，带搜索） |
+| 记录开关 | `BaseModel.recordLog`（record 镜像总开关） |
+| 查看器 | `ui/LogViewerActivity` + `ui/viewmodel/LogViewerViewModel.kt`（Compose，搜索/tag 过滤/仅看错误） |
 | 抓包 | `BaseModel.debugMode`（说明：基于新接口）；转发地址 `sendHookDataUrl` |
 | 状态栏通知 | `util/Notify.kt`、`BaseModel.enableOnGoing`（开启状态栏禁删） |
 | 气泡提示 | `BaseModel.showToast` / `toastOffsetY` |
 | 异常通知 | `BaseModel.errNotify` + `setMaxErrorCount` |
+
+### 9.1 日志分类体系（三层）
+
+日志唯一入口是 `Log` object，SLF4J 按 logger 名分文件落盘。写入分类文件时**统一镜像进 record.log**（受 `BaseModel.recordLog` 开关控制），保证「全部日志」聚合语义完整。
+
+**第 1 层 · 业务日志（按功能模块域）**
+
+| 分类 | API | 文件 | 收纳模块 |
+| --- | --- | --- | --- |
+| 森林 | `Log.forest()` | forest.log | antForest、antCooperate（合种）、reserve（保护地）、EcoProtection（古树）、antDodo（神奇物种） |
+| 海洋 | `Log.ocean()` | ocean.log | antOcean（神奇海洋）、antFishPond（福气鱼池） |
+| 庄园 | `Log.farm()` | farm.log | antFarm、AntFarmFamily、ChouChouLe（抽抽乐） |
+| 果园 | `Log.orchard()` | orchard.log | antOrchard（芭芭农场果树） |
+| 新村 | `Log.stall()` | stall.log | antStall（摆摊）、ReadingDada |
+| 生活 | `Log.life()` | life.log | antMember、antSports、GreenFinance、Credit2101、AnswerAI、庄园捐步 |
+| 其他 | `Log.other()` | other.log | 兜底（TokenHooker、无法归类的零散来源），目标是趋近于空 |
+
+**第 2 层 · 系统日志**
+
+| 分类 | API | 文件 | 定位 |
+| --- | --- | --- | --- |
+| 运行 | `Log.runtime()` / `Log.runtimeWarn()` | runtime.log | TaskRunner 调度/轮次/执行统计、ModelTask 任务开始结束、NewRpcBridge 状态摘要、SmartSchedulerManager、预唤醒。INFO/WARN 级别 |
+| 错误 | `Log.error()` / `Log.printStackTrace()` | error.log | 异常统一出口：ErrorLogPolicy 签名去重 + 60 帧截断 |
+| 抓包 | `Log.capture()` | capture.log | 仅 HookUtil 调用 |
+| 调试 | `Log.debug()` / `Log.d()` | debug.log | logcat 可见，落盘需主动写 |
+
+**第 3 层 · 聚合视图**：record.log（「全部日志」）= 所有业务/系统写入的镜像流。
+
+新增业务模块一律走 `Log.biz(LogCategory.XXX, tag, msg)` 或对应分类便捷方法；域内子模块用 tag 维度区分（`[tag]: msg` 前缀），不再为小模块单独开文件。
+
+### 9.2 容量策略
+
+| 分类 | 单文件上限 | 总量上限 | 保留 |
+| --- | --- | --- | --- |
+| ocean / orchard / stall / life / runtime（业务小配额） | 3MB | 16MB | 7 天 |
+| record / error / capture / forest / farm / other / debug（核心） | 7MB | 64MB | 7 天 |
+
+`system` / `captcha` 文件名为 LOG_NAMES 预留占位，暂无写入方。
 
 **日志使用约定**（来自 `2026-09-05` 计划）：日志需要区分「服务端原始验证」与「本地拦截」；单次阻断只提示一次并保留汇总计数 —— 避免刷屏，也避免误判。
 

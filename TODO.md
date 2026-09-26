@@ -272,7 +272,23 @@ StopExecutionException: Your project path contains non-ASCII characters.
 - [x] 在 GitHub 上为 `main` 开 branch protection —— **已完成**（2026-09-24 核实）：必需检查 `build-and-test` 且 `strict: true`（分支必须先与 `main` 同步才能合入）、`allow_force_pushes=false`、`allow_deletions=false`、`enforce_admins=true`。**唯一差异**：`required_approving_review_count = 0`，即强制 review 未开（单人仓库），要开得手动指定 reviewer
 - [ ] 评估三套 UI 体系（Compose 青 / XML 蓝 / Web 橙）的配色统一 —— 属于产品决策，需单独立项，**不要顺手改**
 
+### P3-1 日志中心分类体系重构 —— ✅ 代码完成（2026-09-26），实机待验
+
+按三层结构重做日志分类（设计见 `docs/architecture.md` §9.1）：
+
+- [x] 基础设施：`Log.kt` 新增 OCEAN/ORCHARD/STALL/LIFE/RUNTIME Logger + `LogCategory` 枚举 + `Log.biz()` 统一路由；`other()` 修复不镜像 record 的缺陷
+- [x] 错位迁移：神奇海洋/鱼池→ocean、新村→stall、果园→orchard、会员/运动/绿金/信用/AI→life；antDodo 保留 forest（森林生态，注释说明）
+- [x] runtime 接入：TaskRunner 调度统计、ModelTask 任务摘要、NewRpcBridge 状态、SmartSchedulerManager/预唤醒
+- [x] UI：LogsContent 三组分节（业务/系统/汇总）；LogViewer 增 tag 过滤、仅看错误、错误计数徽标
+- [x] 容量：新业务文件 3MB/16MB/7 天；`testDebugUnitTest` 与 `compileDebugKotlin` 全绿
+- [ ] 实机验证：新文件 ocean/orchard/stall/life/runtime 生成且内容归属正确；record.log 能检索到 other 镜像
+- [ ] 增量项：设置页每分类独立开关（DataStore）；时间范围/正则过滤（本轮未做）
+
+> `statistics.json` 任务统计（2026-09-23 计划遗留「无 UI」待办）与新「运行日志」互补：前者结构化、可聚合，
+> 后者人读。后续若做统计展示页，从 runtime.log / statistics.json 二选一作数据源即可，不重复建设。
+
 ---
+
 
 ## ✅ 已完成（来自实施计划）
 
