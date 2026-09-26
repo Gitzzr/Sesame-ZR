@@ -29,6 +29,11 @@ enum class FamilyEatResponseAction {
 data object AntFarmFamily {
     private const val TAG = "小鸡家庭"
 
+    /** 家庭一天一次的动作记到庄园模块；跳过也记成功，避免开了开关却显示无记录。 */
+    private fun recordFamily(kind: String, title: String, detail: String, success: Boolean, reason: String?) {
+        AntFarm().recordFarmAction(kind, title, detail, success, reason)
+    }
+
     /** 记一次家庭奖励领取。 */
     private fun recordFamilyReward(title: String, detail: String, success: Boolean) {
         DailyTaskLogRecorder.recordReward(
@@ -129,6 +134,9 @@ data object AntFarmFamily {
                         assignFamilyMember(assignFamilyMemberInfo, familyUserIds, designatedFeedUserIds)
                     } else {
                         Log.record("家庭任务🏡[使用顶梁柱特权] 不是家里的顶梁柱！")
+                        recordFamily(
+                            DailyTaskLogPolicy.ACTION_TASK, "家庭顶梁柱", "", true, "不是家里的顶梁柱"
+                        )
                         familyOptions.value.remove("assignRights")
                     }
                 }
@@ -172,10 +180,12 @@ data object AntFarmFamily {
         try {
             if (Status.hasFlagToday(FAMILY_WALK_DONATE_FLAG)) {
                 Log.record(TAG, "家庭任务🏡捐步今日已完成，跳过")
+                recordFamily(DailyTaskLogPolicy.ACTION_TASK, "家庭捐步", "已完成", true, "今日已完成")
                 return
             }
             if (AntFarmWalkDonateTask.donateIfEligible(TAG)) {
                 Log.farm("家庭任务🏡捐步")
+                recordFamily(DailyTaskLogPolicy.ACTION_TASK, "家庭捐步", "已捐", true, null)
             }
         } catch (e: Exception) {
             Log.printStackTrace(TAG, e)
@@ -193,6 +203,7 @@ data object AntFarmFamily {
             val res = JSONObject(AntFarmRpcCall.familyReceiveFarmTaskAward("FAMILY_SIGN_TASK"))
             if (ResChecker.checkRes(TAG, res)) {
                 Log.farm("家庭任务🏡每日签到")
+                recordFamily(DailyTaskLogPolicy.ACTION_CHECKIN, "家庭签到", "已签到", true, null)
             }
         } catch (e: Exception) {
             Log.printStackTrace(TAG,  e)
@@ -222,9 +233,9 @@ data object AntFarmFamily {
                     val receveRes = JSONObject(AntFarmRpcCall.receiveFamilyAward(rightId))
                     if (ResChecker.checkRes(TAG, receveRes)) {
                         Log.farm("家庭奖励🏆: $awardName x $count")
-                        recordFamilyReward(awardName, "x$count", true)
+                        recordFamilyReward("家庭奖励", "$awardName x$count", true)
                     } else {
-                        recordFamilyReward(awardName, "x$count", false)
+                        recordFamilyReward("家庭奖励", "$awardName x$count", false)
                     }
                 }
             }
@@ -266,6 +277,10 @@ data object AntFarmFamily {
             val jo = JSONObject(AntFarmRpcCall.assignFamilyMember(assignConfig.getString("assignAction"), beAssignUser))
             if (ResChecker.checkRes(TAG, jo)) {
                 Log.farm("家庭任务🏡[使用顶梁柱特权] ${assignConfig.getString("assignDesc")}")
+                recordFamily(
+                    DailyTaskLogPolicy.ACTION_TASK, "家庭顶梁柱",
+                    assignConfig.getString("assignDesc"), true, null
+                )
                 val sendRes = JSONObject(AntFarmRpcCall.sendChat(assignConfig.getString("chatCardType"), beAssignUser))
             }
         } catch (t: Throwable) {
@@ -352,6 +367,7 @@ data object AntFarmFamily {
             val periodItemList = eatTogetherConfig.optJSONArray("periodItemList")
             if (periodItemList == null || periodItemList.length() == 0) {
                 Log.error(TAG, "美食不足,无法请客,请检查小鸡厨房")
+                recordFamily(DailyTaskLogPolicy.ACTION_TASK, "家庭请客", "", false, "美食不足")
                 return
             }
             if (familyInteractActions.length() > 0) {
@@ -387,6 +403,7 @@ data object AntFarmFamily {
             }
             if (!isEat) {
                 Log.record("家庭任务🏠请客吃美食#当前时间不在美食时间段")
+                recordFamily(DailyTaskLogPolicy.ACTION_TASK, "家庭请客", "", true, "不在美食时间段")
                 return
             }
             if (Objects.isNull(familyUserIds) || familyUserIds.isEmpty()) {
@@ -410,6 +427,10 @@ data object AntFarmFamily {
                 FamilyEatResponseAction.CHECK_STANDARD_RESPONSE -> {
                     if (ResChecker.checkRes(TAG, jo)) {
                         Log.farm("家庭任务🏠请客" + periodName + "#消耗美食" + familyUserIds.size + "份")
+                        recordFamily(
+                            DailyTaskLogPolicy.ACTION_TASK, "家庭请客",
+                            periodName + " " + familyUserIds.size + "份", true, null
+                        )
                     }
                 }
             }
@@ -459,6 +480,7 @@ data object AntFarmFamily {
                         Log.farm("家庭任务🏠请客" + periodName + "#刷新成员后重试成功")
                     } else {
                         Log.error(TAG, "家庭任务🏠请客吃美食#重试失败:$retryRes")
+                        recordFamily(DailyTaskLogPolicy.ACTION_TASK, "家庭请客", "", false, "重试失败")
                     }
                 }
             }
@@ -567,6 +589,7 @@ data object AntFarmFamily {
             }
             if (now.before(startTime) || now.after(endTime)) {
                 Log.record(TAG, "家庭任务🏠道早安#当前时间不在 06:00-10:00，跳过")
+                recordFamily(DailyTaskLogPolicy.ACTION_TASK, "家庭道早安", "", true, "不在06:00-10:00")
                 return
             }
 
@@ -579,6 +602,7 @@ data object AntFarmFamily {
             // 本地去重：一天只发送一次，避免重复打扰
             if (Status.hasFlagToday("antFarm::deliverMsgSend")) {
                 Log.record(TAG, "家庭任务🏠道早安#今日已在本地发送过，跳过")
+                recordFamily(DailyTaskLogPolicy.ACTION_TASK, "家庭道早安", "已发送", true, "今日已发送")
                 return
             }
 
@@ -692,6 +716,7 @@ data object AntFarmFamily {
             val resp4 = JSONObject(AntFarmRpcCall.deliverMsgSend(groupId, userIds, content, deliverId))
             if (ResChecker.checkRes(TAG, resp4)) {
                 Log.farm("家庭任务🏠道早安: $content 🌈")
+                recordFamily(DailyTaskLogPolicy.ACTION_TASK, "家庭道早安", content, true, null)
                 Status.setFlagToday("antFarm::deliverMsgSend")
             }
         } catch (t: Throwable) {
@@ -733,6 +758,7 @@ data object AntFarmFamily {
 
             if (inviteList.length() == 0) {
                 Log.error(TAG, "没有符合分享条件的好友")
+                recordFamily(DailyTaskLogPolicy.ACTION_TASK, "家庭分享", "", true, "没有符合条件的好友")
                 return
             }
 
@@ -741,6 +767,7 @@ data object AntFarmFamily {
             val jo = JSONObject(AntFarmRpcCall.inviteFriendVisitFamily(inviteList))
             if (ResChecker.checkRes(TAG, jo)) {
                 Log.farm("家庭任务🏠分享好友")
+                recordFamily(DailyTaskLogPolicy.ACTION_TASK, "家庭分享", "已分享", true, null)
                 Status.setFlagToday("antFarm::familyShareToFriends")
             }
         } catch (t: Throwable) {
@@ -810,6 +837,10 @@ data object AntFarmFamily {
 
                                 if (ResChecker.checkRes(TAG, exchangeJo)) {
                                     Log.farm("家庭装扮💸#成功购买[$spuName]#消耗[${price/100}装修金]")
+                                    recordFamily(
+                                        DailyTaskLogPolicy.ACTION_PROP_EXCHANGE, "家庭装扮兑换",
+                                        spuName, true, null
+                                    )
                                     currentBalance -= price
                                 }
                                 GlobalThreadPools.sleepCompat(2000)

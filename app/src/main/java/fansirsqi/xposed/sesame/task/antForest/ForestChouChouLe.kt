@@ -1,6 +1,7 @@
 package fansirsqi.xposed.sesame.task.antForest
 
 import fansirsqi.xposed.sesame.data.Status
+import fansirsqi.xposed.sesame.task.DailyTaskLogPolicy
 import fansirsqi.xposed.sesame.task.TaskStatus
 import fansirsqi.xposed.sesame.util.GlobalThreadPools.sleepCompat
 import fansirsqi.xposed.sesame.util.Log
@@ -194,6 +195,7 @@ class ForestChouChouLe {
                 val name = prize.optString("prizeName", "未知奖品")
                 val num = prize.optInt("prizeNum", 1)
                 Log.forest("${s.name} 🎁 [获得: $name * $num] 剩余次数: $balance")
+                recordDraw("森林寻宝", "${s.name} $name*$num", true, null)
             }
 
             if (balance > 0) sleepCompat(100L)
@@ -235,6 +237,7 @@ class ForestChouChouLe {
         }
 
         Log.record("${s.name} 进度: $completed / $total")
+        recordDraw("森林寻宝", "$completed/$total", true, s.name)
         if (allDone) {
             Status.setFlagToday(s.flag)
             val msg = if (total > 0) "全部完成" else "无有效任务"
@@ -247,6 +250,10 @@ class ForestChouChouLe {
     /**
      * 判断任务是否在屏蔽列表中
      */
+    private fun recordDraw(title: String, detail: String, success: Boolean, reason: String?) {
+        AntForest.recordForestAction(DailyTaskLogPolicy.ACTION_TASK, title, detail, success, reason)
+    }
+
     private fun isBlockedTask(taskType: String, taskName: String): Boolean {
         return ForestDrawTaskPolicy.actionFor(taskType, taskName) ==
             ForestDrawTaskAction.WAIT_FOR_CAPTURE
@@ -359,7 +366,9 @@ class ForestChouChouLe {
             Log.forest("${s.name} 🧾 $name 奖励领取成功")
             true
         } else {
+            val resultDesc = res?.optString("resultDesc")?.ifEmpty { null } ?: "领取失败"
             Log.error(TAG, "${s.name} 奖励领取失败: $name")
+            recordDraw("森林寻宝", "${s.name} $name", false, resultDesc)
             false
         }
     }

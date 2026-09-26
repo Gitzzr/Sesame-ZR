@@ -3,6 +3,7 @@ package fansirsqi.xposed.sesame.task.antForest;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import fansirsqi.xposed.sesame.task.DailyTaskLogPolicy;
 import fansirsqi.xposed.sesame.util.Log;
 import fansirsqi.xposed.sesame.util.ResChecker;
 import fansirsqi.xposed.sesame.util.TimeUtil;
@@ -52,6 +53,9 @@ public class Healthcare {
                     String title = scene.equals("FEEDS") ? "绿色医疗" : "电子小票";
                     int cumulativeEnergy = jo.getInt("cumulativeEnergy");
                     Log.forest("医疗健康🚑完成[" + title + "]#产生[" + cumulativeEnergy + "g能量]");
+                    AntForest.recordForestAction(
+                            DailyTaskLogPolicy.ACTION_TASK, "绿色医疗",
+                            title + " 产生" + cumulativeEnergy + "g", true, null);
                 }
             }
         } catch (Throwable th) {
@@ -65,6 +69,9 @@ public class Healthcare {
         try {
             JSONObject jo = new JSONObject(AntForestRpcCall.harvestForestEnergy(scene, bubbles));
             if (!ResChecker.checkRes(TAG, jo)) {
+                // 收取响应没有可读原因时只记失败
+                AntForest.recordForestAction(
+                        DailyTaskLogPolicy.ACTION_TASK, "绿色医疗", scene, false, "失败");
                 return false;
             }
             jo = jo.getJSONObject("data").getJSONObject("response");
@@ -72,6 +79,9 @@ public class Healthcare {
             if (collectedEnergy > 0) {
                 String title = scene.equals("FEEDS") ? "绿色医疗" : "电子小票";
                 Log.forest("医疗健康🚑收取[" + title + "]#获得[" + collectedEnergy + "g能量]");
+                AntForest.recordForestAction(
+                        DailyTaskLogPolicy.ACTION_TASK, "绿色医疗",
+                        title + " 收取" + collectedEnergy + "g", true, null);
                 return true;
             }
         } catch (Throwable th) {

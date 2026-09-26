@@ -57,6 +57,7 @@ object EnergyRainCoroutine {
 
     private fun pauseForVerification(stage: String, result: JSONObject) {
         Log.record(TAG, "能量雨${stage}触发安全验证，本次流程结束，后续可再次执行: $result")
+        recordEnergyRain(0, false, "触发安全验证：$stage")
     }
 
     private fun finishSettlementForVerification(result: JSONObject) {
@@ -161,7 +162,7 @@ object EnergyRainCoroutine {
                                     break
                                 } else {
                                     Log.error(TAG, "送能量雨失败 $rainJsonObj")
-                                    recordGift(uid, false, "赠送被拒")
+                                    recordGift(uid, false, failureText(rainJsonObj, "赠送被拒"))
                                 }
                             }
                         }
@@ -270,11 +271,12 @@ object EnergyRainCoroutine {
                     Log.forest(s)
                     recordEnergyRain(sum, true, null)
                 } else {
-                    recordEnergyRain(0, false, "结算失败")
+                    recordEnergyRain(0, false, failureText(resultJson, "结算失败"))
                 }
                 randomDelay(300, 400) // 随机延迟 300-400ms
             } else {
                 Log.record(TAG, "startEnergyRain: $joStart")
+                recordEnergyRain(0, false, failureText(joStart, "开始失败"))
             }
             return true
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -361,6 +363,13 @@ object EnergyRainCoroutine {
     }
 
     /** 记一次能量雨结算，失败不影响流程。 */
+    /** 从响应里取失败描述，没有时用调用方给的兜底，不编造原因。 */
+    private fun failureText(result: JSONObject, fallback: String): String {
+        val desc = result.optString("resultDesc").ifBlank { result.optString("memo") }
+        val code = result.optString("resultCode")
+        return listOf(code, desc).filter { it.isNotBlank() }.joinToString(" ").ifBlank { fallback }
+    }
+
     private fun recordEnergyRain(grams: Int, success: Boolean, reason: String?) {
         DailyTaskLogRecorder.recordEnergyRain(
             UserMap.currentUid,

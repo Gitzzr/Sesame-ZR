@@ -23,6 +23,7 @@ import fansirsqi.xposed.sesame.model.modelFieldExt.ListModelField.ListJoinCommaT
 import fansirsqi.xposed.sesame.model.modelFieldExt.SelectAndCountModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.SelectModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.StringModelField
+import fansirsqi.xposed.sesame.task.ActionEntry
 import fansirsqi.xposed.sesame.task.AnswerAI.AnswerAI
 import fansirsqi.xposed.sesame.task.DailyTaskLogPolicy
 import fansirsqi.xposed.sesame.task.DailyTaskLogRecorder
@@ -69,8 +70,44 @@ class AntFarm : ModelTask() {
     /** 今日完成核对用的开关快照，见 [fansirsqi.xposed.sesame.task.antForest.AntForest.dailyCheckSwitches]。 */
     fun dailyCheckSwitches(): Map<String, Boolean> = mapOf(
         "庄园任务奖励" to (receiveFarmTaskAward?.value == true),
-        "家庭奖励" to (familyOptions?.value?.contains("familyClaimReward") == true)
+        "家庭奖励" to (familyOptions?.value?.contains("familyClaimReward") == true),
+        // 庄园签到随收取奖励执行，没有单独开关
+        "庄园签到" to (receiveFarmTaskAward?.value == true),
+        "加饭卡" to (useBigEaterTool?.value == true),
+        "加速卡" to (useAccelerateTool?.value == true),
+        "新蛋卡" to (useNewEggCard?.value == true),
+        "捐蛋" to (donation?.value == true),
+        "厨房领食材" to (kitchen?.value == true),
+        "厨房做菜" to (kitchen?.value == true),
+        "抽抽乐" to (enableChouchoule?.value == true),
+        "家庭签到" to familyEnabled("familySign"),
+        "家庭请客" to familyEnabled("eatTogetherConfig"),
+        "家庭捐步" to familyEnabled("walkDonate"),
+        "家庭道早安" to familyEnabled("deliverMsgSend"),
+        "家庭分享" to familyEnabled("inviteFriendVisitFamily"),
+        "家庭装扮兑换" to familyEnabled("ExchangeFamilyDecoration"),
+        "家庭顶梁柱" to familyEnabled("assignRights")
     )
+
+    private fun familyEnabled(option: String): Boolean {
+        return family?.value == true && familyOptions?.value?.contains(option) == true
+    }
+
+    /** 供庄园各功能记录一天一次的动作；失败只记日志，不抛出。 */
+    internal fun recordFarmAction(kind: String, title: String, detail: String, success: Boolean, reason: String?) {
+        DailyTaskLogRecorder.recordAction(
+            UserMap.currentUid,
+            ActionEntry(
+                at = System.currentTimeMillis(),
+                module = DailyTaskLogPolicy.MODULE_FARM,
+                kind = kind,
+                title = title,
+                detail = detail,
+                success = success,
+                reason = reason
+            )
+        )
+    }
 
     private fun recordFarmReward(title: String, detail: String, success: Boolean, reason: String?) {
         DailyTaskLogRecorder.recordReward(
@@ -1373,8 +1410,15 @@ class AntFarm : ModelTask() {
                 // 冷却中：失败每日上限只统计成功次数、拦不住重复尝试；且失败多为请求被拒而非真的没卡
                 val remainMin = toolFailureSuppress.remainingCooldownMs(bigEaterKey, nowMs) / 60000
                 Log.record("加饭卡处于失败冷却中（剩余约${remainMin}分钟），跳过尝试")
+                recordFarmAction(
+                    DailyTaskLogPolicy.ACTION_PROP_USE, "加饭卡", "冷却中", true,
+                    "失败冷却剩余约${remainMin}分钟"
+                )
             } else if (serverUseBigEaterTool) {
                 Log.record("服务端标记已使用加饭卡，跳过使用")
+                recordFarmAction(
+                    DailyTaskLogPolicy.ACTION_PROP_USE, "加饭卡", "已使用", true, "服务端标记已使用"
+                )
                 // 这里可选：尝试与本地计数对齐（仅在计数为0时+1，避免重复累加）
                 val today = LocalDate.now().toString()
                 val uid = UserMap.currentUid
@@ -1392,6 +1436,9 @@ class AntFarm : ModelTask() {
 
                 if (usedCount >= 2) {
                     Log.record("今日加饭卡已使用${usedCount}/2，跳过使用")
+                    recordFarmAction(
+                        DailyTaskLogPolicy.ACTION_PROP_USE, "加饭卡", "$usedCount/2", true, "次数已满"
+                    )
                 } else {
                     val result = useFarmTool(ownerFarmId, ToolType.BIG_EATER_TOOL)
                     if (result) {
@@ -1856,15 +1903,27 @@ class AntFarm : ModelTask() {
             val s = AntFarmRpcCall.donation(activityId, 1)
             val donationResponse = JSONObject(s)
             if (AntFarmDonationResponse.requiresVerification(donationResponse)) {
+                recordFarmAction(
+                    DailyTaskLogPolicy.ACTION_TASK, "捐蛋", activityName ?: "", false, "需验证"
+                )
                 return DonationResult.VERIFICATION_REQUIRED
             }
             if (ResChecker.checkRes(TAG, donationResponse)) {
                 val donationDetails = donationResponse.getJSONObject("donation")
                 harvestBenevolenceScore = donationDetails.getDouble("harvestBenevolenceScore")
-                Log.farm("捐赠活动❤️[" + activityName + "]#累计捐赠" + donationDetails.getInt("donationTimesStat") + "次")
+                val donationTimes = donationDetails.getInt("donationTimesStat")
+                Log.farm("捐赠活动❤️[" + activityName + "]#累计捐赠" + donationTimes + "次")
+                recordFarmAction(
+                    DailyTaskLogPolicy.ACTION_TASK, "捐蛋",
+                    (activityName ?: "") + " 累计" + donationTimes + "次", true, null
+                )
                 return DonationResult.SUCCESS
             } else {
-                Log.record(AntFarmDonationResponse.failureMessage(donationResponse))
+                val failure = AntFarmDonationResponse.failureMessage(donationResponse)
+                Log.record(failure)
+                recordFarmAction(
+                    DailyTaskLogPolicy.ACTION_TASK, "捐蛋", activityName ?: "", false, failure
+                )
             }
         } catch (t: Throwable) {
             Log.printStackTrace(t)
@@ -2243,8 +2302,12 @@ class AntFarm : ModelTask() {
         if (ccl.chouchoule()) {
             Status.setFlagToday("farm::chouChouLeFinished")
             Log.farm("今日抽抽乐已完成")
+            recordFarmAction(DailyTaskLogPolicy.ACTION_TASK, "抽抽乐", "已完成", true, null)
         } else {
             Log.record(TAG, "抽抽乐尚有未完成项（请检查是否需要验证）")
+            recordFarmAction(
+                DailyTaskLogPolicy.ACTION_TASK, "抽抽乐", "", false, "尚有未完成项"
+            )
         }
     }
     private fun handleChouChouLeLogic() {
@@ -2530,18 +2593,14 @@ class AntFarm : ModelTask() {
                                 add2FoodStock(awardCount)
                                 Log.farm("收取庄园任务奖励[$taskTitle] # ${awardCount}g (剩余容量: ${foodStockLimit - foodStock}g)")
                                 recordFarmReward(taskTitle, "${awardCount}g", true, null)
-                                if(foodStockAfter >= foodStockLimit){
-                                    Log.farm("领取饲料后饲料[已满]" + foodStock + "g，停止后续领取")
-                                    isFeedFull = true
-                                    break
-                                }
-                                doubleCheck = true
-                                if (unreceiveTaskAward > 0) unreceiveTaskAward--
-                            }
-                            else {
+                            } else {
                                 // 捕获饲料槽已满（331），设置满槽标记并停止后续领取
                                 val resultCode = receiveTaskAwardjo.optString("resultCode", "")
                                 val memo = receiveTaskAwardjo.optString("memo", "")
+                                recordFarmReward(
+                                    taskTitle, "${awardCount}g", false,
+                                    resultCode.ifEmpty { null } ?: memo.ifEmpty { "领取失败" }
+                                )
                                 if ("331" == resultCode || memo.contains("饲料槽已满")) {
                                     Log.record(TAG, "领取失败：饲料槽已满，停止后续领取")
                                     isFeedFull = true
@@ -2581,14 +2640,24 @@ class AntFarm : ModelTask() {
                         val signResponse = AntFarmRpcCall.sign()
                         if (ResChecker.checkRes(TAG, signResponse)) {
                             Log.farm("庄园签到📅获得饲料${awardCount}g,签到天数${currentContinuousCount}")
+                            recordFarmAction(
+                                DailyTaskLogPolicy.ACTION_CHECKIN, "庄园签到",
+                                "${awardCount}g", true, null
+                            )
                             Status.setFlagToday(flag)
                             return true
                         } else {
                             Log.farm("签到失败")
+                            recordFarmAction(
+                                DailyTaskLogPolicy.ACTION_CHECKIN, "庄园签到", "", false, "签到失败"
+                            )
                             return false
                         }
                     } else {
                         Log.record(TAG,"今日已经签到了")
+                        recordFarmAction(
+                            DailyTaskLogPolicy.ACTION_CHECKIN, "庄园签到", "已签到", true, "已签到"
+                        )
                         Status.setFlagToday(flag)
                         return false
                     }
@@ -2874,8 +2943,15 @@ class AntFarm : ModelTask() {
         return isUseAccelerateTool
     }
 
+    /** 只有一天有次数上限的道具进入今日核对，篱笆等持续效果道具不记。 */
+    private fun isDailyTool(toolType: ToolType): Boolean {
+        return toolType == ToolType.BIG_EATER_TOOL ||
+            toolType == ToolType.ACCELERATETOOL ||
+            toolType == ToolType.NEWEGGTOOL
+    }
+
     private fun useFarmTool(targetFarmId: String?, toolType: ToolType): Boolean {
-        val toolName = toolType.nickName()
+        val toolName = toolType.nickName()?.toString() ?: ""
         try {
             var s = AntFarmRpcCall.listFarmTool()
             var jo = JSONObject(s)
@@ -2900,6 +2976,12 @@ class AntFarm : ModelTask() {
                             memo = jo.optString("memo")
                             if (ResChecker.checkRes(TAG, jo)) {
                                 Log.farm("使用了道具🎭[" + toolType.nickName() + "]#剩余" + (toolCount - 1) + "张")
+                                if (isDailyTool(toolType)) {
+                                    recordFarmAction(
+                                        DailyTaskLogPolicy.ACTION_PROP_USE, toolName,
+                                        "剩余${toolCount - 1}张", true, null
+                                    )
+                                }
                                 if (toolType == ToolType.FENCETOOL) {
                                     hasFence = true
                                     fenceCountDown = 86400
@@ -2913,11 +2995,17 @@ class AntFarm : ModelTask() {
                                     Status.setFlagToday("farm::accelerateLimit")
                                 }
                                 // 把真实原因写清楚：调用方此前统一记成「卡片不足」，实测多数其实是请求被拒
+                                val rejectReason = jo.optString("resultDesc").ifEmpty { memo }.ifEmpty { "无描述" }
                                 Log.record(
                                     TAG,
-                                    "使用道具[$toolName]被拒 | resultCode=${resultCode.ifEmpty { "-" }} | " +
-                                            jo.optString("resultDesc").ifEmpty { memo }.ifEmpty { "无描述" }
+                                    "使用道具[$toolName]被拒 | resultCode=${resultCode.ifEmpty { "-" }} | $rejectReason"
                                 )
+                                if (isDailyTool(toolType)) {
+                                    recordFarmAction(
+                                        DailyTaskLogPolicy.ACTION_PROP_USE, toolName, "", false,
+                                        "${resultCode.ifEmpty { "-" }} $rejectReason"
+                                    )
+                                }
                             }
                             Log.record(s)
                         } else {
@@ -3368,6 +3456,10 @@ class AntFarm : ModelTask() {
                     if ("FINISHED" == orchardFoodMaterialStatus.optString("foodStatus")) {
                         jo = JSONObject(AntFarmRpcCall.farmFoodMaterialCollect())
                         if (ResChecker.checkRes(TAG, jo)) {
+                            recordFarmAction(
+                                DailyTaskLogPolicy.ACTION_TASK, "厨房领食材",
+                                "农场食材" + jo.optInt("foodMaterialAddCount") + "g", true, null
+                            )
                             Log.farm("小鸡厨房👨🏻‍🍳[领取农场食材]#" + jo.getInt("foodMaterialAddCount") + "g")
                         }
                     }
@@ -3376,6 +3468,10 @@ class AntFarm : ModelTask() {
                     jo =
                         JSONObject(AntFarmRpcCall.collectDailyFoodMaterial(dailyFoodMaterialAmount))
                     if (ResChecker.checkRes(TAG, jo)) {
+                        recordFarmAction(
+                            DailyTaskLogPolicy.ACTION_TASK, "厨房领食材",
+                            "今日食材${dailyFoodMaterialAmount}g", true, null
+                        )
                         Log.farm("小鸡厨房👨🏻‍🍳[领取今日食材]#" + dailyFoodMaterialAmount + "g")
                     }
                 }
@@ -3428,10 +3524,18 @@ class AntFarm : ModelTask() {
                     for (i in 0..<cookTimesAllowed) {
                         jo = JSONObject(AntFarmRpcCall.cook(userId, "VILLA"))
                         if (ResChecker.checkRes(TAG, jo)) {
+                            recordFarmAction(
+                                DailyTaskLogPolicy.ACTION_TASK, "厨房做菜",
+                                jo.optJSONObject("cuisineVO")?.optString("name") ?: "", true, null
+                            )
                             val cuisineVO = jo.getJSONObject("cuisineVO")
                             Log.farm("小鸡厨房👨🏻‍🍳[" + cuisineVO.getString("name") + "]制作成功")
                         } else {
                             Log.record(TAG, "小鸡厨房制作$jo")
+                            recordFarmAction(
+                                DailyTaskLogPolicy.ACTION_TASK, "厨房做菜", "", false,
+                                jo.optString("memo").ifEmpty { "制作失败" }
+                            )
                         }
                         delay(RandomUtil.delay().toLong())
                     }
@@ -4189,7 +4293,9 @@ class AntFarm : ModelTask() {
                     Log.record(TAG, "NPC小鸡🤖[重雇失败，请检查状态]")
                 }
             } else {
-                Log.record(TAG, "NPC小鸡🤖[遣返领取奖励失败: ${joSendBack.optString("memo")}]")
+                val memo = joSendBack.optString("memo").ifEmpty { "领取失败" }
+                Log.record(TAG, "NPC小鸡🤖[遣返领取奖励失败: $memo]")
+                recordFarmReward("${config.nickName}产出", "$currentReward", false, memo)
             }
         } else {
             Log.record(TAG, "NPC小鸡🤖[${config.nickName}工作中... 当前产出:$currentReward]")
@@ -4219,6 +4325,12 @@ class AntFarm : ModelTask() {
                             val awardCount = task.optInt("awardCount", 0)
                             Log.farm("NPC任务🤖[完成: $title, 奖励: $awardCount 芝麻粒]")
                             recordFarmReward(title, "$awardCount 芝麻粒", true, null)
+                        } else {
+                            recordFarmReward(
+                                title, "芝麻粒", false,
+                                awardJo.optString("resultCode").ifEmpty { null }
+                                    ?: awardJo.optString("memo").ifEmpty { "领取失败" }
+                            )
                         }
                     }
                 }
@@ -4255,6 +4367,12 @@ class AntFarm : ModelTask() {
                             val awardCount = task.optInt("awardCount", 0)
                             Log.farm("NPC任务🤖[完成: $title, 奖励: $awardCount 黄金票]")
                             recordFarmReward(title, "$awardCount 黄金票", true, null)
+                        } else {
+                            recordFarmReward(
+                                title, "黄金票", false,
+                                awardJo.optString("resultCode").ifEmpty { null }
+                                    ?: awardJo.optString("memo").ifEmpty { "领取失败" }
+                            )
                         }
                     }
                     // 2. 做任务 (仅处理 TRIGGER 类型，如"开始攒黄金"、"领体验金")
@@ -4314,6 +4432,12 @@ class AntFarm : ModelTask() {
                             val awardCount = task.optInt("awardCount", 0)
                             Log.farm("NPC任务🤖[完成: $title, 奖励: $awardCount 肥料]")
                             recordFarmReward(title, "$awardCount 肥料", true, null)
+                        } else {
+                            recordFarmReward(
+                                title, "肥料", false,
+                                awardJo.optString("resultCode").ifEmpty { null }
+                                    ?: awardJo.optString("memo").ifEmpty { "领取失败" }
+                            )
                         }
                     }
                 }

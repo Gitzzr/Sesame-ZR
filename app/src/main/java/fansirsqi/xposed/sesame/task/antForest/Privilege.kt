@@ -1,6 +1,7 @@
 package fansirsqi.xposed.sesame.task.antForest
 
 import fansirsqi.xposed.sesame.data.Status
+import fansirsqi.xposed.sesame.task.DailyTaskLogPolicy
 import fansirsqi.xposed.sesame.util.Log
 import org.json.JSONArray
 import org.json.JSONException
@@ -91,7 +92,10 @@ object Privilege {
         val status = baseInfo.optString("taskStatus")
 
         when (status) {
-            TASK_RECEIVED -> Log.forest("$PREFIX_PRIVILEGE[$taskName]已领取")
+            TASK_RECEIVED -> {
+                Log.forest("$PREFIX_PRIVILEGE[$taskName]已领取")
+                recordPrivilege(DailyTaskLogPolicy.ACTION_PROP_USE, "青春特权道具", taskName, true, "已领取")
+            }
             TASK_FINISHED -> handleYouthTaskAward(taskType, taskName, results)
         }
     }
@@ -104,6 +108,10 @@ object Privilege {
 
             val logMessage = if (resultDesc == "处理成功") "领取成功" else "领取结果：$resultDesc"
             Log.forest("$PREFIX_PRIVILEGE[$taskName]$logMessage")
+            recordPrivilege(
+                DailyTaskLogPolicy.ACTION_PROP_USE, "青春特权道具", taskName,
+                resultDesc == "处理成功", resultDesc
+            )
         } catch (e: JSONException) {
             Log.error(TAG, "奖励领取结果解析失败$e")
             results.add("处理异常")
@@ -113,11 +121,13 @@ object Privilege {
     fun studentSignInRedEnvelope() {
         if (!isSignInTimeValid()) {
             Log.record("$PREFIX_SIGN 5点前不执行签到")
+            recordPrivilege(DailyTaskLogPolicy.ACTION_CHECKIN, "青春特权签到", "5点前", true, "5点前不执行")
             return
         }
 
         if (Status.hasFlagToday(FLAG_STUDENT_TASK)) {
             Log.record("$PREFIX_SIGN 今日已完成签到")
+            recordPrivilege(DailyTaskLogPolicy.ACTION_CHECKIN, "青春特权签到", "已完成", true, "今日已完成")
             return
         }
 
@@ -143,7 +153,9 @@ object Privilege {
         }
 
         if (result.optString("resultCode") != RPC_SUCCESS) {
-            Log.record("$PREFIX_SIGN 查询失败：${result.optString("resultDesc")}")
+            val resultDesc = result.optString("resultDesc", "查询失败")
+            Log.record("$PREFIX_SIGN 查询失败：$resultDesc")
+            recordPrivilege(DailyTaskLogPolicy.ACTION_CHECKIN, "青春特权签到", "查询", false, resultDesc)
             return
         }
 
@@ -174,13 +186,19 @@ object Privilege {
         if (code == RPC_SUCCESS) {
             Status.setFlagToday(FLAG_STUDENT_TASK)
             Log.forest("$PREFIX_SIGN$tag$desc")
+            recordPrivilege(DailyTaskLogPolicy.ACTION_CHECKIN, "青春特权签到", tag, true, desc)
         } else {
             var errorMsg = desc
             if (desc.contains("不匹配")) {
                 errorMsg += "可能账户不符合条件"
             }
             Log.error(TAG, "$PREFIX_SIGN$tag 失败：$errorMsg")
+            recordPrivilege(DailyTaskLogPolicy.ACTION_CHECKIN, "青春特权签到", tag, false, errorMsg)
         }
+    }
+
+    private fun recordPrivilege(kind: String, title: String, detail: String, success: Boolean, reason: String?) {
+        AntForest.recordForestAction(kind, title, detail, success, reason)
     }
 
     data class YouthTask(val queryParam: String, val receiveParam: String, val name: String)

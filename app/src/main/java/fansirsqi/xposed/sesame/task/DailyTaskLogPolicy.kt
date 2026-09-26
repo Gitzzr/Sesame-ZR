@@ -38,6 +38,26 @@ data class GiftEntry(
     val reason: String? = null
 )
 
+/**
+ * 一次有日次数上限的动作：任务完成、打卡、使用道具、兑换道具。
+ *
+ * 一天会跑多轮的收取（收能量、喂食、收蛋、清理海洋）不进这里。
+ */
+data class ActionEntry(
+    val at: Long = 0,
+    /** forest / farm / ocean */
+    val module: String = "",
+    /** task / checkin / propUse / propExchange */
+    val kind: String = "",
+    /** 动作名称，如「森林寻宝」「使用双击卡」 */
+    val title: String = "",
+    /** 进度或数量，如 "3/10"、"兑换第 2 次" */
+    val detail: String = "",
+    val success: Boolean = false,
+    /** 失败或跳过原因；成功时为 null */
+    val reason: String? = null
+)
+
 /** 一次任务奖励领取，覆盖森林、庄园、海洋。 */
 data class RewardEntry(
     val at: Long = 0,
@@ -64,6 +84,8 @@ data class DailyTaskLog(
     val energyRain: List<EnergyRainEntry> = emptyList(),
     val gifts: List<GiftEntry> = emptyList(),
     val rewards: List<RewardEntry> = emptyList(),
+    /** 任务完成、打卡、道具使用与兑换。旧文件没有该字段时按空列表解析。 */
+    val actions: List<ActionEntry> = emptyList(),
     val updatedAt: Long = 0
 )
 
@@ -77,6 +99,9 @@ data class GiftTally(
 )
 
 /** 一个预期项的核对结论。 */
+/** 核对计数只关心成败和原因，奖励与动作共用。 */
+private data class Outcome(val success: Boolean, val reason: String?)
+
 data class ExpectedTaskStatus(
     /** 展示名，如「能量雨」「好友浇水」 */
     val name: String,
@@ -107,6 +132,11 @@ object DailyTaskLogPolicy {
     const val MODULE_FARM: String = "farm"
     const val MODULE_OCEAN: String = "ocean"
 
+    const val ACTION_TASK: String = "task"
+    const val ACTION_CHECKIN: String = "checkin"
+    const val ACTION_PROP_USE: String = "propUse"
+    const val ACTION_PROP_EXCHANGE: String = "propExchange"
+
     /** 同一天沿用已有列表，跨日清空。 */
     private fun base(prev: DailyTaskLog?, userId: String, day: String): DailyTaskLog {
         return if (prev != null && prev.day == day) prev else DailyTaskLog(userId = userId, day = day)
@@ -134,6 +164,17 @@ object DailyTaskLogPolicy {
         return b.copy(userId = userId, gifts = b.gifts + entry, updatedAt = now)
     }
 
+    fun addAction(
+        prev: DailyTaskLog?,
+        userId: String,
+        day: String,
+        entry: ActionEntry,
+        now: Long
+    ): DailyTaskLog {
+        val b = base(prev, userId, day)
+        return b.copy(userId = userId, actions = b.actions + entry, updatedAt = now)
+    }
+
     fun addReward(
         prev: DailyTaskLog?,
         userId: String,
@@ -159,6 +200,51 @@ object DailyTaskLogPolicy {
                 )
             }
             .sortedWith(compareBy({ it.kind }, { it.targetName }))
+    }
+
+    /**
+     * 按核对项名称回查今日记录。
+     *
+     * 同模块的奖励按 title 分开计，避免庄园任务奖励和家庭奖励、海洋任务奖励和潘多拉能量互相串。
+     * 动作项只计 title 相同的记录；没有对应记录时返回全 0，由界面显示「今日无记录」。
+     */
+    fun countFor(name: String, log: DailyTaskLog): Triple<Int, Int, String?> {
+        fun tally(items: List<Outcome>): Triple<Int, Int, String?> {
+            val failed = items.filterNot { it.success }
+            return Triple(items.size - failed.size, failed.size, failed.lastOrNull()?.reason)
+        }
+        return when (name) {
+            "能量雨" -> tally(log.energyRain.map { Outcome(it.success, it.reason) })
+            "好友浇水" -> tally(log.gifts.filter { it.kind == GIFT_WATER }.map { Outcome(it.success, it.reason) })
+            "能量雨机会赠送" -> tally(log.gifts.filter { it.kind == GIFT_RAIN_CHANCE }.map { Outcome(it.success, it.reason) })
+            "道具赠送" -> tally(log.gifts.filter { it.kind == GIFT_PROP }.map { Outcome(it.success, it.reason) })
+            "森林任务奖励" -> tally(
+                log.rewards.filter { it.module == MODULE_FOREST && it.title != "1V1能量挑战" }
+                    .map { Outcome(it.success, it.reason) } +
+                    log.actions.filter { it.title == "森林任务奖励" }.map { Outcome(it.success, it.reason) }
+            )
+            "1V1能量挑战" -> tally(
+                log.rewards.filter { it.module == MODULE_FOREST && it.title == "1V1能量挑战" }
+                    .map { Outcome(it.success, it.reason) }
+            )
+            "庄园任务奖励" -> tally(
+                log.rewards.filter { it.module == MODULE_FARM && !it.title.startsWith("家庭奖励") }
+                    .map { Outcome(it.success, it.reason) }
+            )
+            "家庭奖励" -> tally(
+                log.rewards.filter { it.module == MODULE_FARM && it.title.startsWith("家庭奖励") }
+                    .map { Outcome(it.success, it.reason) }
+            )
+            "海洋任务奖励" -> tally(
+                log.rewards.filter { it.module == MODULE_OCEAN && !it.detail.startsWith("潘多拉能量") }
+                    .map { Outcome(it.success, it.reason) }
+            )
+            "潘多拉能量" -> tally(
+                log.rewards.filter { it.module == MODULE_OCEAN && it.detail.startsWith("潘多拉能量") }
+                    .map { Outcome(it.success, it.reason) }
+            )
+            else -> tally(log.actions.filter { it.title == name }.map { Outcome(it.success, it.reason) })
+        }
     }
 
     /**

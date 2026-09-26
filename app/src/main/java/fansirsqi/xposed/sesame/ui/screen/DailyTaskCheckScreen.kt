@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import fansirsqi.xposed.sesame.model.Model
+import fansirsqi.xposed.sesame.task.ActionEntry
 import fansirsqi.xposed.sesame.task.DailyTaskLog
 import fansirsqi.xposed.sesame.task.DailyTaskLogPolicy
 import fansirsqi.xposed.sesame.task.DailyTaskLogRecorder
@@ -115,18 +116,15 @@ fun DailyTaskCheckScreen(onBack: () -> Unit) {
                 if (snapshot.rewards.isEmpty()) {
                     EmptyHint("今日无记录")
                 } else {
-                    MODULE_ORDER.forEach { module ->
-                        val entries = snapshot.rewards.filter { it.module == module }
-                        if (entries.isNotEmpty()) {
-                            Text(
-                                text = moduleLabel(module),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
-                            entries.forEach { RewardRow(it) }
-                        }
-                    }
+                    ModuleGroups(snapshot.rewards, { it.module }) { RewardRow(it) }
+                }
+            }
+
+            SectionCard(title = "任务与道具", tone = SectionTone.NORMAL) {
+                if (snapshot.actions.isEmpty()) {
+                    EmptyHint("今日无记录")
+                } else {
+                    ModuleGroups(snapshot.actions, { it.module }) { ActionRow(it) }
                 }
             }
 
@@ -144,12 +142,15 @@ private data class CheckSnapshot(
     val giftTallies: List<GiftTally>,
     val giftFailures: List<GiftEntry>,
     val rewards: List<RewardEntry>,
+    val actions: List<ActionEntry>,
     val rainSuccess: Int,
     val rainFail: Int,
     val giftSuccess: Int,
     val giftFail: Int,
     val rewardSuccess: Int,
-    val rewardFail: Int
+    val rewardFail: Int,
+    val actionSuccess: Int,
+    val actionFail: Int
 )
 
 private fun loadSnapshot(): CheckSnapshot {
@@ -157,8 +158,9 @@ private fun loadSnapshot(): CheckSnapshot {
         ?: DailyTaskLog(day = DailyTaskLogRecorder.dayKey(System.currentTimeMillis()))
     val enabled = runCatching { readEnabledSwitches() }.getOrDefault(emptyMap())
 
-    val attention = DailyTaskLogPolicy.expectedStatus(enabled) { name -> countFor(name, log) }
-        .sortedWith(compareBy({ !it.missing && it.failCount == 0 }, { !it.missing }))
+    val attention = DailyTaskLogPolicy.expectedStatus(enabled) { name ->
+        DailyTaskLogPolicy.countFor(name, log)
+    }.sortedWith(compareBy({ !it.missing && it.failCount == 0 }, { !it.missing }))
 
     return CheckSnapshot(
         day = log.day.ifEmpty { DailyTaskLogRecorder.dayKey(System.currentTimeMillis()) },
@@ -167,13 +169,16 @@ private fun loadSnapshot(): CheckSnapshot {
         energyRain = log.energyRain.sortedByDescending { it.at },
         giftTallies = DailyTaskLogPolicy.giftTallies(log),
         giftFailures = log.gifts.filter { !it.success }.sortedByDescending { it.at },
-        rewards = log.rewards.sortedByDescending { it.at },
+        rewards = log.rewards.sortedWith(compareBy({ it.success }, { -it.at })),
+        actions = log.actions.sortedWith(compareBy({ it.success }, { -it.at })),
         rainSuccess = log.energyRain.count { it.success },
         rainFail = log.energyRain.count { !it.success },
         giftSuccess = log.gifts.count { it.success },
         giftFail = log.gifts.count { !it.success },
         rewardSuccess = log.rewards.count { it.success },
-        rewardFail = log.rewards.count { !it.success }
+        rewardFail = log.rewards.count { !it.success },
+        actionSuccess = log.actions.count { it.success },
+        actionFail = log.actions.count { !it.success }
     )
 }
 
@@ -186,25 +191,7 @@ private fun readEnabledSwitches(): Map<String, Boolean> {
     return switches
 }
 
-/** 由预期项名称回查今日记录，算出成功次数、失败次数和最近一次失败原因。 */
-private fun countFor(name: String, log: DailyTaskLog): Triple<Int, Int, String?> {
-    fun <T> tally(items: List<T>, ok: (T) -> Boolean, reason: (T) -> String?): Triple<Int, Int, String?> {
-        val success = items.count(ok)
-        val failed = items.filterNot(ok)
-        return Triple(success, failed.size, failed.lastOrNull()?.let(reason))
-    }
-    return when (name) {
-        "能量雨" -> tally(log.energyRain, { it.success }, { it.reason })
-        "好友浇水" -> tally(log.gifts.filter { it.kind == DailyTaskLogPolicy.GIFT_WATER }, { it.success }, { it.reason })
-        "能量雨机会赠送" -> tally(log.gifts.filter { it.kind == DailyTaskLogPolicy.GIFT_RAIN_CHANCE }, { it.success }, { it.reason })
-        "道具赠送" -> tally(log.gifts.filter { it.kind == DailyTaskLogPolicy.GIFT_PROP }, { it.success }, { it.reason })
-        "森林任务奖励" -> tally(log.rewards.filter { it.module == DailyTaskLogPolicy.MODULE_FOREST }, { it.success }, { it.reason })
-        "1V1能量挑战" -> tally(log.rewards.filter { it.module == DailyTaskLogPolicy.MODULE_FOREST && it.title == "1V1能量挑战" }, { it.success }, { it.reason })
-        "庄园任务奖励", "家庭奖励" -> tally(log.rewards.filter { it.module == DailyTaskLogPolicy.MODULE_FARM }, { it.success }, { it.reason })
-        "海洋任务奖励", "潘多拉能量" -> tally(log.rewards.filter { it.module == DailyTaskLogPolicy.MODULE_OCEAN }, { it.success }, { it.reason })
-        else -> Triple(0, 0, null)
-    }
-}
+/** 按模块分组展示；调用前已把失败记录排在前面。 */
 
 @Composable
 private fun SummaryCard(snapshot: CheckSnapshot) {
@@ -212,8 +199,9 @@ private fun SummaryCard(snapshot: CheckSnapshot) {
         SummaryLine("能量雨", snapshot.rainSuccess, snapshot.rainFail)
         SummaryLine("能量赠送", snapshot.giftSuccess, snapshot.giftFail)
         SummaryLine("任务奖励", snapshot.rewardSuccess, snapshot.rewardFail)
+        SummaryLine("任务与道具", snapshot.actionSuccess, snapshot.actionFail)
         if (snapshot.attention.isEmpty() &&
-            snapshot.rainSuccess + snapshot.giftSuccess + snapshot.rewardSuccess == 0
+            snapshot.rainSuccess + snapshot.giftSuccess + snapshot.rewardSuccess + snapshot.actionSuccess == 0
         ) {
             EmptyHint("今天还没有任务记录")
         }
@@ -291,6 +279,37 @@ private fun GiftFailureRow(entry: GiftEntry) {
         title = "${giftKindLabel(entry.kind)} → $who　未送达",
         trailing = formatTime(entry.at),
         failed = true,
+        detail = entry.reason
+    )
+}
+
+@Composable
+private fun <T> ModuleGroups(
+    entries: List<T>,
+    moduleOf: (T) -> String,
+    row: @Composable (T) -> Unit
+) {
+    MODULE_ORDER.forEach { module ->
+        val group = entries.filter { moduleOf(it) == module }
+        if (group.isNotEmpty()) {
+            Text(
+                text = moduleLabel(module),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+            group.forEach { row(it) }
+        }
+    }
+}
+
+@Composable
+private fun ActionRow(entry: ActionEntry) {
+    val amount = entry.detail.takeIf { it.isNotBlank() }?.let { "　$it" } ?: ""
+    RecordRow(
+        title = entry.title.ifBlank { "未命名动作" } + amount,
+        trailing = formatTime(entry.at),
+        failed = !entry.success,
         detail = entry.reason
     )
 }

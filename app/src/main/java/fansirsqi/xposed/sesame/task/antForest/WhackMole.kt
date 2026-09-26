@@ -141,6 +141,11 @@ object WhackMole {
             if (ResChecker.checkRes(TAG, settleResp)) {
                 val total = settleResp.optInt("totalEnergy", 0)
                 Log.forest("森林能量⚡️[兼容模式完成(打${remainingIds.size + hitCount}个) 总能量+${total}g]")
+                // 结算返回 0 无法区分没打中和失败，只记结算成功这一局
+                AntForest.recordForestAction(
+                    fansirsqi.xposed.sesame.task.DailyTaskLogPolicy.ACTION_TASK,
+                    "6秒拼手速", "1局 ${total}g", true, null
+                )
             }
         } catch (t: Throwable) {
             Log.record(TAG, "兼容模式出错: ${t.message}")
@@ -181,6 +186,12 @@ object WhackMole {
             totalEnergy += settleStandardRound(session)
         }
         Log.forest("森林能量⚡️[激进模式${sessions.size}局 总计${totalEnergy}g]")
+        if (sessions.isNotEmpty()) {
+            AntForest.recordForestAction(
+                fansirsqi.xposed.sesame.task.DailyTaskLogPolicy.ACTION_TASK,
+                "6秒拼手速", "${sessions.size}局 ${totalEnergy}g", true, null
+            )
+        }
     }
 
     private suspend fun startSingleRound(round: Int): GameSession? {

@@ -469,6 +469,13 @@ class ChouChouLe {
      * @param response 服务器返回的结果
      * 返回是否领取成功
      */
+    private fun recordDrawPrize(title: String) {
+        AntFarm().recordFarmAction(
+            fansirsqi.xposed.sesame.task.DailyTaskLogPolicy.ACTION_TASK,
+            "抽抽乐", title, true, null
+        )
+    }
+
     private fun drawPrize(prefix: String, response: String): Boolean {
         try {
             val jo = JSONObject(response)
@@ -479,12 +486,14 @@ class ChouChouLe {
                         val prize = prizeList.getJSONObject(i)
                         val title = prize.optString("title", prize.optString("prizeName", "未知奖品"))
                         Log.farm("$prefix🎁[领取: $title]")
+                        recordDrawPrize(title)
                     }
                 } else {
                     val prize = jo.optJSONObject("drawMachinePrize")
                     if (prize != null) {
                         val title = prize.optString("title", prize.optString("prizeName", "未知奖品"))
                         Log.farm("$prefix🎁[领取: $title]")
+                        recordDrawPrize(title)
                     } else {
                         Log.farm("$prefix🎁[抽奖成功，但未解析到具体奖品名称]")
                     }
