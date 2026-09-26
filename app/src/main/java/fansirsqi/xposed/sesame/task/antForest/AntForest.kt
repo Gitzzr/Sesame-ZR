@@ -2869,14 +2869,23 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                         }
                     }
                     if (!newBubbleIdList.isEmpty()) {
-                        collectEnergyEntity.rpcEntity = AntForestRpcCall.batchEnergyRpcEntity(
-                            "",
-                            userId,
-                            newBubbleIdList
-                        )
-                        collectEnergyEntity.setNeedDouble()
-                        collectEnergyEntity.resetTryCount()
-                        collectEnergy(collectEnergyEntity)
+                        if (DoubleCollectChainPolicy.canContinue(collectEnergyEntity.chainCount)) {
+                            collectEnergyEntity.rpcEntity = AntForestRpcCall.batchEnergyRpcEntity(
+                                "",
+                                userId,
+                                newBubbleIdList
+                            )
+                            collectEnergyEntity.setNeedDouble()
+                            collectEnergyEntity.resetTryCount()
+                            collectEnergyEntity.addChainCount()
+                            collectEnergy(collectEnergyEntity)
+                        } else {
+                            Log.record(
+                                TAG,
+                                "续收链已达上限(" + DoubleCollectChainPolicy.MAX_CHAIN + ")，停止续收: "
+                                        + getAndCacheUserName(userId)
+                            )
+                        }
                     }
                 } else if (jaBubbleLength == 1) {
                     val bubble = jaBubbles.getJSONObject(0)
@@ -2903,10 +2912,19 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                         }
                     }
                     if (bubble.getBoolean("canBeRobbedAgain")) {
-                        collectEnergyEntity.setNeedDouble()
-                        collectEnergyEntity.resetTryCount()
-                        collectEnergy(collectEnergyEntity)
-                        return@Runnable
+                        if (DoubleCollectChainPolicy.canContinue(collectEnergyEntity.chainCount)) {
+                            collectEnergyEntity.setNeedDouble()
+                            collectEnergyEntity.resetTryCount()
+                            collectEnergyEntity.addChainCount()
+                            collectEnergy(collectEnergyEntity)
+                            return@Runnable
+                        }
+                        // 达到续收上限：不再递归，继续走后面的浇水回赠流程，避免无界递归打爆调用栈
+                        Log.record(
+                            TAG,
+                            "续收链已达上限(" + DoubleCollectChainPolicy.MAX_CHAIN + ")，停止续收: "
+                                    + getAndCacheUserName(userId)
+                        )
                     }
 
                     val userHome = collectEnergyEntity.userHome
@@ -3434,23 +3452,29 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             if (needDouble || needStealth || needShield || needEnergyBombCard || needrobExpand || needBubbleBoostCard) {
                 val shieldBag = synchronized(doubleCardLockObj) {
                     val bagObject = queryPropList()
-                    // Log.runtime(TAG, "bagObject=" + (bagObject == null ? "null" : bagObject.toString()));
-                    if (needDouble) useDoubleCard(bagObject!!) // 使用双击卡
+                    if (bagObject == null) {
+                        // 背包查询失败（触发安全验证 / RPC 返回为空）时本轮跳过需要背包的道具。
+                        // 此前这里直接对 null 强解包会抛 NPE，并被下面的续收递归放大成日志风暴。
+                        // 失败原因已由 queryPropList() 内部记录，这里不重复打日志。
+                    } else {
+                        if (needDouble) useDoubleCard(bagObject) // 使用双击卡
 
-                    if (needrobExpand) userobExpandCard() // 使用1.1倍能量卡
+                        if (needrobExpand) userobExpandCard() // 使用1.1倍能量卡
 
-                    if (needStealth) useStealthCard(bagObject) // 使用隐身卡
+                        if (needStealth) useStealthCard(bagObject) // 使用隐身卡
 
+                        if (needEnergyBombCard) {
+                            Log.record(TAG, "准备使用能量炸弹卡")
+                            useEnergyBombCard(bagObject)
+                        }
+                    }
+                    // 加速卡走定时注册，不依赖本次背包查询结果
                     if (needBubbleBoostCard) useCardBoot(
                         bubbleBoostTime!!.value,
                         "加速卡"
                     ) {
                         this.useBubbleBoostCard()
                     } // 使用加速卡
-                    if (needEnergyBombCard) {
-                        Log.record(TAG, "准备使用能量炸弹卡")
-                        useEnergyBombCard(bagObject)
-                    }
                     bagObject
                 }
                 if (needShield) useShieldCard(shieldBag)
@@ -4113,11 +4137,12 @@ class AntForest : ModelTask(), EnergyCollectCallback {
      * @param propType  道具类型 LIMIT_TIME_ENERGY_SHIELD_TREE,...
      */
     private fun findPropBag(bagObject: JSONObject?, propType: String): JSONObject? {
-        if (Objects.isNull(bagObject)) {
+        // 用 `== null` 而非 Objects.isNull()，以便 Kotlin 智能转换，后续无需非空断言
+        if (bagObject == null) {
             return null
         }
         try {
-            val forestPropVOList = bagObject!!.getJSONArray("forestPropVOList")
+            val forestPropVOList = bagObject.getJSONArray("forestPropVOList")
             for (i in 0..<forestPropVOList.length()) {
                 val forestPropVO = forestPropVOList.getJSONObject(i)
                 val propConfigVO = forestPropVO.getJSONObject("propConfigVO")
