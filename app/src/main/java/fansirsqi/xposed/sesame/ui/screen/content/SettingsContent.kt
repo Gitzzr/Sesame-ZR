@@ -1,6 +1,6 @@
 package fansirsqi.xposed.sesame.ui.screen.content
 
-import SettingsSwitchItem
+import fansirsqi.xposed.sesame.ui.screen.components.SettingsSwitchItem
 import android.content.Context.MODE_PRIVATE
 import android.content.Intent
 import android.os.Build

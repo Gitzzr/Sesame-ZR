@@ -209,7 +209,8 @@ video {
 
 .title {
   max-width: calc(100vw - 180px);
-  white-space: warp;
+  /* 原为 warp（非法值，浏览器整条忽略，表现为标题不换行） */
+  white-space: wrap;
   color: #000000;
 }
 
