@@ -16,6 +16,7 @@ import fansirsqi.xposed.sesame.data.General;
 import fansirsqi.xposed.sesame.entity.RpcEntity;
 import fansirsqi.xposed.sesame.hook.ApplicationHook;
 import fansirsqi.xposed.sesame.hook.RequestManager;
+import fansirsqi.xposed.sesame.hook.VerificationPausePolicy;
 import fansirsqi.xposed.sesame.hook.rpc.intervallimit.RpcIntervalLimit;
 import fansirsqi.xposed.sesame.model.BaseModel;
 
@@ -66,6 +67,69 @@ public class NewRpcBridge implements RpcBridge {
         String methodName = rpcEntity != null ? rpcEntity.getRequestMethod() : "unknown";
         if (shouldShowErrorLog(methodName)) {
             Log.error(TAG, "RPC返回null | 方法: " + methodName + " | 原因: " + reason + " | 重试: " + count);
+        }
+    }
+
+    /**
+     * 响应是否表示成功。
+     * <p>
+     * 取不到 {@code success} / {@code isSuccess} 字段或取值异常时返回 true，
+     * 即「无法判定为失败就不当作失败」，避免把正常响应误判成需要熔断。
+     */
+    private static boolean isSuccessResponse(Object responseObject) {
+        try {
+            boolean hasSuccess = Boolean.TRUE.equals(
+                    ReflectionHelper.callMethod(responseObject, "containsKey", "success"));
+            boolean hasIsSuccess = Boolean.TRUE.equals(
+                    ReflectionHelper.callMethod(responseObject, "containsKey", "isSuccess"));
+            String key = hasSuccess ? "success" : (hasIsSuccess ? "isSuccess" : null);
+            if (key == null) {
+                return true;
+            }
+            Object value = ReflectionHelper.callMethod(responseObject, "get", key);
+            if (value == null) {
+                return true;
+            }
+            return Boolean.parseBoolean(String.valueOf(value));
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    /**
+     * 在 {@code success:false} 的响应里找风控信息，命中就交给统一熔断处理。
+     */
+    private static void checkVerificationInFailedResponse(RpcEntity rpcEntity, Object responseObject) {
+        String errorCode = readStringField(responseObject, "error");
+        String errorMessage = readStringField(responseObject, "errorMessage");
+        String resultCode = readStringField(responseObject, "resultCode");
+        String resultDesc = readStringField(responseObject, "resultDesc");
+
+        if (!VerificationPausePolicy.requiresVerificationIn(errorCode, errorMessage, resultCode, resultDesc)) {
+            return;
+        }
+        RequestManager.handleVerificationRequired(
+                rpcEntity.getRequestMethod(),
+                errorCode != null ? errorCode : resultCode,
+                errorMessage != null ? errorMessage : resultDesc);
+    }
+
+    /**
+     * 安全读取响应对象的字符串字段：字段缺失、取值为空或读取异常一律返回 null（不抛异常）。
+     */
+    private static String readStringField(Object responseObject, String key) {
+        try {
+            if (!Boolean.TRUE.equals(ReflectionHelper.callMethod(responseObject, "containsKey", key))) {
+                return null;
+            }
+            Object value = ReflectionHelper.callMethod(responseObject, "get", key);
+            if (value == null) {
+                return null;
+            }
+            String text = String.valueOf(value);
+            return text.isEmpty() ? null : text;
+        } catch (Throwable t) {
+            return null;
         }
     }
 
@@ -274,6 +338,15 @@ public class NewRpcBridge implements RpcBridge {
                                                         Log.error(TAG, "new rpc response1 | id: " + rpcEntity.hashCode() + " | method: " + rpcEntity.getRequestMethod() + "\n " +
                                                                 "args: " + rpcEntity.getRequestData() + " |\n data: " + rpcEntity.getResponseString());
                                                     }
+                                                } else if (!isSuccessResponse(obj)) {
+                                                    // success:false 是预期内的业务失败，不能置 error（否则会触发整个 RPC 重试），
+                                                    // 但风控信息常常正藏在这类响应里，例如
+                                                    //   {"success":false,"resultCode":"RPC_VERIFICATION_REQUIRED",
+                                                    //    "resultDesc":"触发安全验证，请人工验证后继续"}
+                                                    // 旧实现在「存在 success 键」时直接跳过风控判定，导致实测 4 天 4941 次
+                                                    // 背包查询被拒却从未触发统一熔断（此处只在失败响应上多做几次字段读取，
+                                                    // 成功响应的热路径不增加开销）。
+                                                    checkVerificationInFailedResponse(rpcEntity, obj);
                                                 }
                                             } catch (Exception e) {
                                                 rpcEntity.setError();

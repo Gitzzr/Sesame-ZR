@@ -146,8 +146,10 @@ public class OldRpcBridge implements RpcBridge {
             Log.record(TAG,"系统繁忙，可能需要滑动验证");
             return null; // 返回 null
         }
-        String errorCode = resultObject.optString("error", "");
-        String errorMessage = resultObject.optString("errorMessage", resultObject.optString("memo", ""));
+        // 部分接口用 resultCode/resultDesc 承载风控信息（如 queryPropList），与 error/errorMessage 一起判读
+        String errorCode = resultObject.optString("error", resultObject.optString("resultCode", ""));
+        String errorMessage = resultObject.optString("errorMessage",
+                resultObject.optString("resultDesc", resultObject.optString("memo", "")));
         if (RequestManager.isVerificationRequired(errorCode, errorMessage)) {
             RequestManager.handleVerificationRequired(method, errorCode, errorMessage);
             rpcEntity.setResponseObject(null, RequestManager.VERIFICATION_REQUIRED_RESPONSE);

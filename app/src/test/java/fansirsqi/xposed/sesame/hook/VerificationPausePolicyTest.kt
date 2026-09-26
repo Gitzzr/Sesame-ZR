@@ -149,4 +149,55 @@ class VerificationPausePolicyTest {
             )
         )
     }
+
+    // ---------- 两套字段（error/errorMessage 与 resultCode/resultDesc） ----------
+
+    @Test
+    fun `风控藏在 resultCode 字段时同样判定成立`() {
+        // 实测响应：alipay.antforest.forest.h5.queryPropList
+        // {"success":false,"resultCode":"RPC_VERIFICATION_REQUIRED","resultDesc":"触发安全验证，请人工验证后继续"}
+        // 旧实现只读 error/errorMessage，导致 4 天 8552 次背包查询被拒却从未触发熔断。
+        assertTrue(
+            VerificationPausePolicy.requiresVerificationIn(
+                null, null, "RPC_VERIFICATION_REQUIRED", "触发安全验证，请人工验证后继续"
+            )
+        )
+        // 只有文案、没有错误码时也必须成立（AntForest 记录的正是这段 resultDesc）
+        assertTrue(
+            VerificationPausePolicy.requiresVerificationIn(
+                null, null, null, "触发安全验证，请人工验证后继续"
+            )
+        )
+    }
+
+    @Test
+    fun `触发安全验证这段文案单独成立`() {
+        // 这段措辞此前不在 VERIFICATION_TEXTS 列表里，只靠错误码会漏判
+        assertTrue(VerificationPausePolicy.requiresVerification(null, "触发安全验证，请人工验证后继续"))
+        assertTrue(VerificationPausePolicy.requiresVerification("1009", "触发安全验证"))
+    }
+
+    @Test
+    fun `标准字段成立时不受 resultCode 影响`() {
+        assertTrue(
+            VerificationPausePolicy.requiresVerificationIn(
+                "RPC_VERIFICATION_REQUIRED", "请进行验证后继续", null, null
+            )
+        )
+    }
+
+    @Test
+    fun `两套字段都不像风控时不判定`() {
+        assertFalse(VerificationPausePolicy.requiresVerificationIn(null, null, null, null))
+        assertFalse(
+            VerificationPausePolicy.requiresVerificationIn(
+                "1009", "系统繁忙，请稍后再试。", "1009", "返回数据为空"
+            )
+        )
+        assertFalse(
+            VerificationPausePolicy.requiresVerificationIn(
+                null, null, "SUCCESS", "操作成功"
+            )
+        )
+    }
 }
