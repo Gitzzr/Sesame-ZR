@@ -3067,13 +3067,15 @@ class AntMember : ModelTask() {
                 val s = AntMemberRpcCall.queryActivity()
                 val jo = JSONObject(s)
                 if (ResChecker.checkRes(TAG, jo)) {
-                    if ("SIGN_IN_ENABLE" == jo.getString("signInStatus")) {
-                        val activityNo = jo.getString("activityNo")
+                    // 服务端新版已不再返回 signInStatus / activityNo，
+                    // 用 optString 兜底：字段缺失即视为「当前无需签到」，静默跳过而不是抛异常刷堆栈
+                    val activityNo = jo.optString("activityNo")
+                    if ("SIGN_IN_ENABLE" == jo.optString("signInStatus") && activityNo.isNotEmpty()) {
                         val joSignIn = JSONObject(AntMemberRpcCall.signIn(activityNo))
                         if (ResChecker.checkRes(TAG, joSignIn)) {
                             Log.other("商家服务🏬[开门打卡签到成功]")
                         } else {
-                            record(TAG, joSignIn.getString("errorMsg"))
+                            record(TAG, joSignIn.optString("errorMsg"))
                             record(TAG, joSignIn.toString())
                         }
                     }
@@ -3093,21 +3095,27 @@ class AntMember : ModelTask() {
                 for (i in 0..4) {
                     val jo = JSONObject(AntMemberRpcCall.queryActivity())
                     if (ResChecker.checkRes(TAG, jo)) {
-                        val activityNo = jo.getString("activityNo")
-                        if (TimeUtil.getFormatDate().replace("-", "") != activityNo.split("_".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()[2]) {
+                        // 服务端新版已不再返回 activityNo；缺失时直接结束，
+                        // 既避免 JSONException，也避免 split 后取下标越界
+                        val activityNo = jo.optString("activityNo")
+                        val activityNoParts = activityNo.split("_")
+                        if (activityNo.isEmpty() || activityNoParts.size < 3) {
                             break
                         }
-                        if ("SIGN_UP" == jo.getString("signUpStatus")) {
+                        if (TimeUtil.getFormatDate().replace("-", "") != activityNoParts[2]) {
                             break
                         }
-                        if ("UN_SIGN_UP" == jo.getString("signUpStatus")) {
-                            val activityPeriodName = jo.getString("activityPeriodName")
+                        if ("SIGN_UP" == jo.optString("signUpStatus")) {
+                            break
+                        }
+                        if ("UN_SIGN_UP" == jo.optString("signUpStatus")) {
+                            val activityPeriodName = jo.optString("activityPeriodName")
                             val joSignUp = JSONObject(AntMemberRpcCall.signUp(activityNo))
                             if (ResChecker.checkRes(TAG, joSignUp)) {
                                 Log.other("商家服务🏬[" + activityPeriodName + "开门打卡报名]")
                                 return@run
                             } else {
-                                record(TAG, joSignUp.getString("errorMsg"))
+                                record(TAG, joSignUp.optString("errorMsg"))
                                 record(TAG, joSignUp.toString())
                             }
                         }
