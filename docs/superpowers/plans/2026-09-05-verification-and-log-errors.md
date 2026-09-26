@@ -8,6 +8,10 @@
 
 - 用户确认目标为 `codex/dev`，以 `59b34f37` 为基础迁移修复；Launcher 恢复入口适配 `ModernXposedRuntime`，保留 libxposed 102 与开发分支新增功能。
 - 开发分支原有 `ChouChouLeSchedulePolicyTest.kt` 引用不存在的 `ChouChouLeScheduleAction/ChouChouLeSchedulePolicy`，完整测试编译失败。在临时隔离且随后原样恢复该文件后，164 项其余测试通过，APK 构建成功；不能将此表述为完整测试通过。
+  - **后续（2026-09-26）**：该问题已彻底修复。补上 `ChouChouLeSchedulePolicy`（`actionFor(completedToday, timeReached)`，
+    真值表即本测试注释里那张表），接线到 `AntFarm.handleChouChouLeLogic()`（行为逐条等价的内联 `when` → 策略替换），
+    解除 `@Ignore` 并恢复断言，另补 `(true, false)` 用例。**全量 278 项、0 失败、skipped 由 3 降为 0**。
+    详见 `TODO.md` P0-1。
 - 原提交 `d22ff368` 位于错误的 `codex/pre-libxposed-102` 分支，通过新增回退提交撤销，不强推改写历史；本地最终保留在 `codex/dev`。
 
 - [x] 核实 webhook.db 共 73 条请求，会员新版入口样本 61/71、对应首页 64；捐蛋列表 1、详情 3/10、成功捐赠 6。未复制认证数据到测试。

@@ -12,7 +12,7 @@
 
 ## 🔴 P0 · 原阻塞项（两条均已解除，当前无开发阻塞）
 
-### P0-1 单元测试编译失败 —— 🟡 阻塞已解，功能仍未实现（2026-09-22）
+### P0-1 单元测试编译失败 —— ✅ 已完成（2026-09-26）
 
 **原现象**：`./gradlew :app:testDebugUnitTest` 直接编译失败，整个测试任务跑不起来。
 
@@ -40,13 +40,19 @@
 
 **待办**：
 
-- [ ] 定调度语义（`timeReached` 判定依据、`completedToday` 数据来源）
-- [ ] 实现 `ChouChouLeScheduleAction` + `ChouChouLeSchedulePolicy`
-- [ ] **接线到 `ChouChouLe.kt` 的调度分支** —— 只实现不接线会留下死代码
-- [ ] 补 `(completedToday = true, timeReached = false)` 这条用例（现有用例没覆盖）
-- [ ] 解除 `@Ignore` 并恢复断言
+- [x] 定调度语义 —— **契约测试的表格就是语义**，无需另行拍板：
+      `completedToday` = `Status.hasFlagToday("farm::chouChouLeFinished")`；
+      `timeReached` = 执行条件是否满足（按时模式看 `TaskTimeChecker.isTimeReached(enableChouchouleTime, "0900")`，
+      等改分模式看 `Status.hasFlagToday("farm::farmGameFinished")`）
+- [x] 实现 `ChouChouLeScheduleAction` + `ChouChouLeSchedulePolicy`（2026-09-26）
+- [x] **接线到调度分支** —— 落点是 `AntFarm.handleChouChouLeLogic()`（不是 `ChouChouLe.kt`：
+      后者的 `chouchoule()` 只是执行入口，真正的调度判定一直在 `AntFarm` 里）。
+      接线为**行为逐条等价**的内联 `when` → 策略调用替换（2026-09-26）
+- [x] 补 `(completedToday = true, timeReached = false)` 用例（2026-09-26）
+- [x] 解除 `@Ignore` 并恢复断言（2026-09-26）
 
 **验收**：`./gradlew :app:testDebugUnitTest` 编译并执行，该测试由 skipped 变为 pass。
+→ ✅ **已达成**：全量 278 项、0 失败、**skipped 由 3 降为 0**，`ChouChouLeSchedulePolicyTest` 4 项全 pass。
 
 > 背景：`2026-09-05` 计划的「分支更正」一节已经记录过这个问题（*「开发分支原有 `ChouChouLeSchedulePolicyTest.kt` 引用不存在的类，完整测试编译失败」*），当时用「临时隔离该文件」的方式绕过并跑通 164 项测试，但**问题本身没有被修**。2026-09-22 的 `@Ignore` 同样是权宜之计。
 
@@ -192,15 +198,68 @@ StopExecutionException: Your project path contains non-ASCII characters.
 - [ ] 确认这两条接口是否只面向本机调试；若是，至少改为绑定 `127.0.0.1` 或统一继承 `BaseHandler`
 - [ ] 注意 `BaseHandler` 在 `secretToken` 为空时**直接放行** —— 别在生产配置里留空
 
-### P2-5 `SettingsComponents.kt` 缺 `package` 声明
+### P2-5 `SettingsComponents.kt` 缺 `package` 声明 —— ✅ 已完成（2026-09-26）
 
-`app/src/main/java/fansirsqi/xposed/sesame/ui/screen/components/SettingsComponents.kt` 文件首行直接是 `import`，没有 `package` 行，导致 `SettingsSwitchItem` 落在 Kotlin 默认包，与同目录其他文件不一致。
+`app/src/main/java/fansirsqi/xposed/sesame/ui/screen/components/SettingsComponents.kt` 文件首行曾是 `import`，没有 `package` 行，导致 `SettingsSwitchItem` 落在 Kotlin 默认包，与同目录其他文件不一致。
 
-- [ ] 补上 `package fansirsqi.xposed.sesame.ui.screen.components`
+- [x] 补上 `package fansirsqi.xposed.sesame.ui.screen.components`（2026-09-26）
+- [x] **同时修正 `ui/screen/content/SettingsContent.kt` 的 `import SettingsSwitchItem`** ——
+      那是**从默认包导入**的写法，补上 `package` 后必须改为全限定导入，否则编译失败
 
-### P2-6 `index.css` 的 `white-space: warp`
+> 教训：最初误以为「该文件没有调用方」（只按**文件名**搜引用，没按它**导出的符号**搜），
+> 结果被编译器当场纠正 —— 按文件名搜引用是不可靠的，要搜符号名（这里是 `SettingsSwitchItem`）。
 
-`assets/web/css/index.css` 中 `.title` 规则写了 `white-space: warp;`，正确值是 `wrap`。浏览器会忽略这条非法声明，所以目前表现为标题不换行。低风险，改的时候顺手修掉即可。
+### P2-6 `index.css` 的 `white-space: warp` —— ✅ 已修正（2026-09-26）
+
+`assets/web/css/index.css` 中 `.title` 规则写了 `white-space: warp;`，正确值是 `wrap`。浏览器会忽略这条非法声明，所以此前表现为标题不换行。低风险，改的时候顺手修掉即可。
+
+- [x] 改为 `white-space: wrap`（2026-09-26）
+
+> 注意：这会**改变视觉表现**（标题此前不换行、现在会换行），已按用户可见变更记入 `changelog.d/`。
+
+---
+
+### P2-7 `1009` 业务拒绝被当作「网络错误」重试 8 次 —— 🆕 2026-09-26 发现
+
+```
+[NewRpcBridge]: RPC返回null | 方法: com.alipay.antstall.project.donate | 原因: 网络错误: 1009/系统繁忙，请稍后再试。 | 重试: 1
+[RequestManager]: RPC 失败 (1/8) | Method: com.alipay.antstall.project.donate | Reason: 返回数据为空
+```
+2026-09-26 21:39 实测：`com.alipay.antstall.project.donate` **6 秒内被重试 6 次**，`nextTicketFriend` 同样，间隔约 1 秒。
+
+判定本身没错 —— `VerificationPausePolicy` 已明确 `1009` 是**业务拒绝**、不当安全验证（这条要保住）。
+问题在于它随后被归类为「网络错误」并进入 **8 次重试**：业务拒绝重试不会成功，
+且**在风控窗口内会放大请求量**，方向与「减少无效请求」相反。
+
+- [ ] 确认 `1009 / 系统繁忙` 等业务拒绝是否应跳过重试（或只重试 1 次），给出判定依据
+- [ ] 若改，注意 `RequestManager` 的重试是**共享逻辑**，别影响真正的网络抖动恢复
+
+### P2-8 启动期 `主动调用获取授权码失败` —— 🆕 2026-09-26 发现（属宿主侧）
+
+```
+[主动调用获取授权码失败: Attempt to invoke interface method
+ 'com.alibaba.ariver.rpc.biz.oauth.WalletAuthSkipResultPB
+  com.alibaba.ariver.rpc.biz.Oauth2AuthCodeFacade.getAuthPreDecision(...)'
+```
+每次启动出现一次，是**支付宝侧接口不兼容**（`Attempt to invoke interface method ... failed`），
+**不是**已修的那个蚂蚁森林 `NullPointerException`。
+
+⚠️ 排查时注意：按关键字「NullPointerException」粗筛会把这两者混在一起（2026-09-26 已误报过一次）。
+
+- [ ] 确认该接口在当前支付宝版本是否已移除；若已移除，评估是否还需保留调用
+
+### P2-9 加饭卡失败的真实原因有两种 —— 📝 2026-09-26 已定位（无需改代码）
+
+原先日志统一记成「⚠️使用道具🎭[加饭卡]失败，可能卡片不足或状态异常~」，无法区分。现已按原因分开记录：
+
+| 原因 | 实测证据 |
+| --- | --- |
+| **道具数量为 0**（真的没卡） | `道具[加饭卡]数量为 0，跳过使用`（2026-09-26 21:39） |
+| **道具列表查询被拒**（风控） | `道具列表查询失败，跳过使用[加饭卡]`；对应 `AntFarm.listFarmTool` 的 `Check failed` |
+
+- [x] `useFarmTool` 按「列表查询失败 / 数量为 0 / 不在背包列表 / 使用被拒」分别记录（2026-09-26）
+- [x] 失败后 30 分钟冷却，避免重复请求（2026-09-26）
+- [ ] 观察一轮，确认全天失败次数从 44 次明显下降
 
 ---
 
@@ -208,7 +267,7 @@ StopExecutionException: Your project path contains non-ASCII characters.
 
 - [x] 建立文档体系：`AGENTS.md`、`DESIGN.md`、`TODO.md`、`docs/{project-overview,architecture,user-guide,development,component-api}.md`（2026-09-21）
 - [x] `CODEBUDDY.md` 仓库导览（2026-09-21）
-- [ ] 把 P0-1 的修复结论回填到 `docs/superpowers/plans/2026-09-05-verification-and-log-errors.md` 的「分支更正」一节
+- [x] 把 P0-1 的修复结论回填到 `docs/superpowers/plans/2026-09-05-verification-and-log-errors.md` 的「分支更正」一节（2026-09-26）
 - [x] 建立 CI 测试环节：已拆分流水线 —— `ci.yml` 跑 build + 单测（Kotlin/JVM + Web JS），`android.yml` 只管发版（2026-09-22）
 - [x] 在 GitHub 上为 `main` 开 branch protection —— **已完成**（2026-09-24 核实）：必需检查 `build-and-test` 且 `strict: true`（分支必须先与 `main` 同步才能合入）、`allow_force_pushes=false`、`allow_deletions=false`、`enforce_admins=true`。**唯一差异**：`required_approving_review_count = 0`，即强制 review 未开（单人仓库），要开得手动指定 reviewer
 - [ ] 评估三套 UI 体系（Compose 青 / XML 蓝 / Web 橙）的配色统一 —— 属于产品决策，需单独立项，**不要顺手改**
@@ -244,7 +303,7 @@ StopExecutionException: Your project path contains non-ASCII characters.
 
 | 优先级 | 任务 | 阻塞于 | 预计影响面 |
 | --- | --- | --- | --- |
-| ~~🟡 P0-1~~ ⚠️ | 抽抽乐调度策略：**编译阻塞已解**（`@Ignore`），功能本身待实现并接线 | 需先定调度语义 | 1 新增文件 + `ChouChouLe.kt` 调度分支 |
+| ~~🟡 P0-1~~ ✅ | ~~抽抽乐调度策略：编译阻塞已解（`@Ignore`），功能本身待实现并接线~~ 已完成 2026-09-26（全量 skipped 3→0） | — | 1 新增文件 + `AntFarm` 调度分支 |
 | ~~🔴 P0-2~~ ✅ | ~~装 JDK 17 + Android SDK 37~~ 已完成 2026-09-21 | — | 环境，无代码变更 |
 | 🟠 P1-1 | 安全验证与调度修复的实机回归 | 真机 | 无代码变更，纯验证 |
 | 🟠 P1-2 | 自营项目捐蛋 | **需要用户提供抓包样本** | `AntFarm.kt` + 协议测试 |
@@ -253,7 +312,10 @@ StopExecutionException: Your project path contains non-ASCII characters.
 | 🟠 P1-5 | 任务统计落盘的实机回归：`statistics.json` 生成 / 当日累加 / 取消时仍写入 | 真机 | 无代码变更，纯验证 |
 | 🟡 P2-1 | 青春特权 3000 | **需要抓包样本** | 会员模块 |
 | 🟡 P2-4 | HTTP 接口鉴权统一 | 需确认使用场景 | `hook/server/` |
-| 🟡 P2-5 | 补 `SettingsComponents.kt` 的 `package` | 无 | 1 行 |
-| 🟡 P2-6 | `white-space: warp` 笔误 | 无 | `index.css` 一行 |
+| ~~🟡 P2-5~~ ✅ | ~~补 `SettingsComponents.kt` 的 `package`~~ 已完成 2026-09-26（该文件当前无调用方） | — | 1 行 |
+| ~~🟡 P2-6~~ ✅ | ~~`white-space: warp` 笔误~~ 已完成 2026-09-26（会改变标题换行表现） | — | `index.css` 一行 |
+| 🟡 P2-7 | `1009` 业务拒绝被当作「网络错误」重试 8 次 | 需定重试策略 | `RequestManager` 共享重试逻辑 |
+| 🟡 P2-8 | 启动期 `主动调用获取授权码失败`（宿主侧接口不兼容，非已修的 NPE） | 需确认支付宝版本 | 无或 1 处调用 |
+| 🟢 P2-9 | 加饭卡失败原因已分类（数量为 0 / 列表被拒）+ 30 分钟冷却 | 待真机观察下降幅度 | `AntFarm` 已改 |
 | ~~🟢 P3~~ ✅ | ~~CI 增加测试环节~~ 已完成 2026-09-22（拆出 `ci.yml`：build + 单测） | — | workflow 改动 |
 | ~~🟢 P3~~ ✅ | ~~发版流水线配 4 个签名 secrets~~ 已完成 2026-09-22（密钥库离线保管，实测签名链路通过） | — | secrets，无代码变更 |
