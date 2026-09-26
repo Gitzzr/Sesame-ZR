@@ -31,6 +31,10 @@ object VerificationPausePolicy {
 
     /** 服务端真正要求人工安全验证时携带的文案。 */
     private val VERIFICATION_TEXTS = listOf(
+        // 「触发安全验证」是实测日志里出现频次最高的措辞：AntForest 记录的
+        // `刷新背包失败: 触发安全验证，请人工验证后继续` 正是它（4 天 8552 次），
+        // 但此前不在本列表中 —— 只靠错误码会漏判。
+        "触发安全验证",
         "请进行验证后继续",
         "为保障您的正常访问",
         "为了保障您的操作安全"
@@ -81,6 +85,28 @@ object VerificationPausePolicy {
         val message = errorMessage.orEmpty()
         if (VERIFICATION_TEXTS.any { message.contains(it) }) return true
         return errorCode == VERIFICATION_ERROR_CODE
+    }
+
+    /**
+     * 同上，但同时检查承载风控信息的**两套字段**。
+     *
+     * 支付宝的响应有两套错误字段：
+     * - `error` / `errorMessage` —— 标准错误字段
+     * - `resultCode` / `resultDesc` —— 业务结果字段，部分接口用它承载风控
+     *
+     * 实测 `alipay.antforest.forest.h5.queryPropList` 返回
+     * `{"success":false,"resultCode":"RPC_VERIFICATION_REQUIRED","resultDesc":"触发安全验证，请人工验证后继续"}`
+     * 时，只认前者会漏判 —— 4 天内 4941 次背包查询被拒却从未触发统一熔断。
+     */
+    @JvmStatic
+    fun requiresVerificationIn(
+        errorCode: String?,
+        errorMessage: String?,
+        resultCode: String?,
+        resultDesc: String?
+    ): Boolean {
+        return requiresVerification(errorCode, errorMessage) ||
+                requiresVerification(resultCode, resultDesc)
     }
 
     /**
