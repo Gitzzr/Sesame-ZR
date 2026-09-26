@@ -12,6 +12,9 @@ var isCIBuild: Boolean = System.getenv("CI").toBoolean()
 
 //isCIBuild = true // 没有c++源码时开启CI构建, push前关闭
 
+/** 2020-01-01T00:00:00Z 对应的 Unix 分钟数（1577836800 / 60），用于生成单调递增的 versionCode。 */
+val EPOCH_2020_01_01_MINUTES_UTC: Long = 26_297_280L
+
 android {
     namespace = "fansirsqi.xposed.sesame"
     buildToolsVersion = "37.0.0"
@@ -34,10 +37,23 @@ android {
         }
 
     }
-    // 使用providers API来支持配置缓存
-    val gitCommitCount: Int = providers.exec {
-        commandLine("git", "rev-list", "--count", "HEAD")
-    }.standardOutput.asText.get().trim().toIntOrNull() ?: 1
+    // versionCode 必须**单调递增**，否则 Android 会拒绝覆盖安装
+    // （`INSTALL_FAILED_VERSION_DOWNGRADE`），用户只能卸载重装、数据全丢。
+    //
+    // 旧实现取自 `git rev-list --count HEAD`，它对 **rebase / squash / reset 不单调**：
+    // 2026-09-26 实测因此从 3711 回退到 3706（提交被丢弃后计数变小）。
+    // 而本仓库用的是 squash-merge 工作流，分支计数本来就会来回变，所以这个方案不成立。
+    //
+    // 现改为「自 2020-01-01 起的分钟数」：天然单调、无需人工维护、也不依赖提交历史。
+    // 当前约 354 万，远高于旧方案的历史峰值 3711，因此不会与已装版本冲突。
+    // 同一分钟内的多次构建会得到相同 versionCode —— 用 `adb install -r` 覆盖安装没问题
+    // （只有**降级**才被拒）；构建间的可区分性由 BuildConfig.BUILD_DATE / BUILD_TIME 提供。
+    //
+    // 注：不要再叠加「基线 × 10^k + 低位」这类写法 —— Int 上界只有 21 亿，
+    // 加大倍数会溢出，减小倍数则低位会周期性回绕，回绕本身就是一次版本号回退。
+    val minutesSince2020Utc: Int = (
+            System.currentTimeMillis() / 60_000L - EPOCH_2020_01_01_MINUTES_UTC
+            ).toInt()
     defaultConfig {
         vectorDrawables.useSupportLibrary = true
         applicationId = "fansirsqi.xposed.sesame"
@@ -52,7 +68,7 @@ android {
             timeZone = TimeZone.getTimeZone("GMT+8")
         }.format(Date())
 
-        versionCode = gitCommitCount
+        versionCode = minutesSince2020Utc
         versionName = "0.9.9"
 
         buildConfigField("String", "BUILD_DATE", "\"$buildDate\"")

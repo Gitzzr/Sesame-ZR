@@ -14,7 +14,7 @@
 | Android SDK | platform **37.0** + build-tools **37.0.0** | `compileSdk = 37`（`minorApiLevel = 0`）、`targetSdk = 36` |
 | Android NDK | 29.0.14206865 | **仅当 `app/src/main/cpp/CMakeLists.txt` 存在时才需要**；该目录被 gitignore，正常克隆后没有 |
 | Gradle | 9.5.0 | 用仓库自带 wrapper，**不要用系统 gradle** |
-| git | 任意 | 必需。`versionCode` 靠 `git rev-list --count HEAD` 生成，且必须是完整克隆 |
+| git | 任意 | 必需（changelog 片段汇总等）。`versionCode` 已改为「自 2020-01-01 起的分钟数」，**不再**依赖 `git rev-list`，浅克隆也不影响版本号 |
 | Node.js | 18+ | 只有跑 Web 端 JS 测试时才需要（无 npm 依赖） |
 | Python | 3.12+ | 只有跑 `serve-debug/` 调试台时才需要，用 `uv` 管理 |
 
@@ -584,7 +584,7 @@ gh workflow run ci.yml --repo Gitzzr/Sesame-ZR --ref main
 | `:app:testDebugUnitTest` 直接编译失败，报找不到 `ChouChouLeScheduleAction` | 已知阻塞，见 [`../AGENTS.md`](../AGENTS.md) 与 `../TODO.md` P0-1 |
 | 单测报 `FileNotFoundException: src/main/...` | 从仓库根直接跑了测试。必须用 Gradle（工作目录是 `app/`） |
 | 重命名了一个标识符后测试挂了 | 命中了源码契约测试。`grep -rn "<旧名>" app/src/test/` |
-| `versionCode` 异常（如 1） | 构建目录不是完整 git 克隆，或 `git` 不在 PATH |
+| `versionCode` 比已装版本小、覆盖安装被拒（`INSTALL_FAILED_VERSION_DOWNGRADE`） | 旧实现取 `git rev-list --count`，rebase / squash 后会回退。现已改为「自 2020-01-01 起的分钟数」（当前约 354 万），同一分钟内多次构建号相同、但只有**降级**才被拒 |
 | Web 页面改了没生效 | `assets/` 是打包资源，需重新构建安装；要热调试请用 `serve-debug/webui.py` |
 | Web 页面报「未找到匹配设置」但明明有 | 搜索只匹配模块名/模块代码/字段名/字段代码/描述 |
 | Compose 界面颜色和其他页面对不上 | 三套 UI 强调色本来就不同（青/蓝/橙），见 [`../DESIGN.md`](../DESIGN.md) §0 |
