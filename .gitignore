@@ -103,3 +103,6 @@ ai.py
 
 # codegraph
 .codegraph
+
+# WorkBuddy 工作目录（本机会话记忆 / 设备日志，属本地状态，不入库）
+.workbuddy/
