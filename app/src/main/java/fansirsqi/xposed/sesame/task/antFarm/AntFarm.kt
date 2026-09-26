@@ -2224,34 +2224,31 @@ class AntFarm : ModelTask() {
         }
     }
     private fun handleChouChouLeLogic() {
-        // 1. 检查抽抽乐是否已完成
-        if (Status.hasFlagToday("farm::chouChouLeFinished")) {
-            Log.record("今日抽抽乐已完成")
-            return
-        }
-        val isGameFinished = Status.hasFlagToday("farm::farmGameFinished")
+        // 调度判定统一走 ChouChouLeSchedulePolicy（纯策略，有契约测试兜底）。
+        // 两个入参：completedToday = 今日是否已完成；timeReached = 执行条件是否已满足 ——
+        // 「按时模式」下看时间，「等改分模式」下看游戏改分是否完成，两种模式共用同一张真值表。
+        val completedToday = Status.hasFlagToday("farm::chouChouLeFinished")
         val isGameEnabled = recordFarmGame!!.value
-        val isTimeReached = TaskTimeChecker.isTimeReached(enableChouchouleTime?.value, "0900")
-        val ignoreAcceLimitMode = !isGameEnabled || ignoreAcceLimit!!.value
+        val byTime = !isGameEnabled || ignoreAcceLimit!!.value
+        val triggerReached = if (byTime) {
+            TaskTimeChecker.isTimeReached(enableChouchouleTime?.value, "0900")
+        } else {
+            Status.hasFlagToday("farm::farmGameFinished")
+        }
 
-        when {
-            ignoreAcceLimitMode -> {
-                if (isTimeReached) {
-                    playChouChouLe()
+        when (ChouChouLeSchedulePolicy.actionFor(completedToday, triggerReached)) {
+            ChouChouLeScheduleAction.SKIP_COMPLETED -> Log.record("今日抽抽乐已完成")
+
+            ChouChouLeScheduleAction.WAIT_FOR_TIME -> Log.record(
+                TAG,
+                if (byTime) {
+                    "当前处于按时抽抽乐模式，未到设定时间，跳过"
                 } else {
-                    Log.record(TAG, "当前处于按时抽抽乐模式，未到设定时间，跳过")
+                    "游戏改分还没有完成，暂不执行抽抽乐"
                 }
-            }
+            )
 
-            // 游戏改分已完成直接执行抽抽乐
-            isGameFinished -> {
-                playChouChouLe()
-            }
-
-            // 游戏改分任务尚未完成
-            isGameEnabled && !isGameFinished -> {
-                Log.record("游戏改分还没有完成，暂不执行抽抽乐")
-            }
+            ChouChouLeScheduleAction.RUN -> playChouChouLe()
         }
     }
 
