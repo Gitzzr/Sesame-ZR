@@ -66,7 +66,6 @@ import kotlin.math.min
 
 @Suppress("unused", "EnumEntryName", "EnumEntryName", "EnumEntryName", "EnumEntryName")
 class AntFarm : ModelTask() {
-    /** 记一次庄园奖励领取，失败不影响庄园流程。 */
     /** 今日完成核对用的开关快照，见 [fansirsqi.xposed.sesame.task.antForest.AntForest.dailyCheckSwitches]。 */
     fun dailyCheckSwitches(): Map<String, Boolean> = mapOf(
         "庄园任务奖励" to (receiveFarmTaskAward?.value == true),
@@ -89,6 +88,7 @@ class AntFarm : ModelTask() {
         "家庭顶梁柱" to familyEnabled("assignRights")
     )
 
+    /** 家庭玩法总开关已开、且该子项 [option] 在家庭配置里被勾选时才算开启。 */
     private fun familyEnabled(option: String): Boolean {
         return family?.value == true && familyOptions?.value?.contains(option) == true
     }
@@ -109,6 +109,7 @@ class AntFarm : ModelTask() {
         )
     }
 
+    /** 记一次庄园奖励领取，失败不影响庄园流程。 */
     private fun recordFarmReward(title: String, detail: String, success: Boolean, reason: String?) {
         DailyTaskLogRecorder.recordReward(
             UserMap.currentUid,
@@ -1415,6 +1416,7 @@ class AntFarm : ModelTask() {
                     "失败冷却剩余约${remainMin}分钟"
                 )
             } else if (serverUseBigEaterTool) {
+                // 若服务端已标记今日使用过（或当前有效），本地直接跳过
                 Log.record("服务端标记已使用加饭卡，跳过使用")
                 recordFarmAction(
                     DailyTaskLogPolicy.ACTION_PROP_USE, "加饭卡", "已使用", true, "服务端标记已使用"
@@ -2310,10 +2312,18 @@ class AntFarm : ModelTask() {
             )
         }
     }
+
+    /**
+     * 抽抽乐调度入口：按 [ChouChouLeSchedulePolicy] 的真值表决定「执行 / 等待 / 已完成跳过」。
+     *
+     * 与改造前相比，判定不再散落在 `when` 分支里，而是收敛成
+     * `completedToday` + `triggerReached` 两个入参，交由带契约测试的策略类裁决。
+     */
     private fun handleChouChouLeLogic() {
         // 调度判定统一走 ChouChouLeSchedulePolicy（纯策略，有契约测试兜底）。
         // 两个入参：completedToday = 今日是否已完成；timeReached = 执行条件是否已满足 ——
         // 「按时模式」下看时间，「等改分模式」下看游戏改分是否完成，两种模式共用同一张真值表。
+        // 1. 检查抽抽乐是否已完成
         val completedToday = Status.hasFlagToday("farm::chouChouLeFinished")
         val isGameEnabled = recordFarmGame!!.value
         val byTime = !isGameEnabled || ignoreAcceLimit!!.value
@@ -2326,6 +2336,7 @@ class AntFarm : ModelTask() {
         when (ChouChouLeSchedulePolicy.actionFor(completedToday, triggerReached)) {
             ChouChouLeScheduleAction.SKIP_COMPLETED -> Log.record("今日抽抽乐已完成")
 
+            // 游戏改分任务尚未完成（按时模式下则为未到设定时间）
             ChouChouLeScheduleAction.WAIT_FOR_TIME -> Log.record(
                 TAG,
                 if (byTime) {
@@ -2335,6 +2346,7 @@ class AntFarm : ModelTask() {
                 }
             )
 
+            // 游戏改分已完成直接执行抽抽乐
             ChouChouLeScheduleAction.RUN -> playChouChouLe()
         }
     }

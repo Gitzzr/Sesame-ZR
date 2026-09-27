@@ -282,6 +282,8 @@ object Files {
         return "$logName.log"
     }
 
+    // 各分类日志文件句柄：文件名与 [Log] 里的 loggerName 一一对应，保证「分类 → 文件」可预期。
+
     @JvmStatic
     fun getRecordLogFile(): File = ensureLogFile(getLogFile("record"))
 
@@ -303,18 +305,23 @@ object Files {
     @JvmStatic
     fun getErrorLogFile(): File = ensureLogFile(getLogFile("error"))
 
+    /** 海洋垂钓分类日志文件（antOcean / antFishPond）。 */
     @JvmStatic
     fun getOceanLogFile(): File = ensureLogFile(getLogFile("ocean"))
 
+    /** 果园分类日志文件（antOrchard）。 */
     @JvmStatic
     fun getOrchardLogFile(): File = ensureLogFile(getLogFile("orchard"))
 
+    /** 蚂蚁新村分类日志文件（antStall / ReadingDada）。 */
     @JvmStatic
     fun getStallLogFile(): File = ensureLogFile(getLogFile("stall"))
 
+    /** 生活权益分类日志文件（antMember / antSports / GreenFinance / Credit2101 / AnswerAI）。 */
     @JvmStatic
     fun getLifeLogFile(): File = ensureLogFile(getLogFile("life"))
 
+    /** 运行日志文件：任务调度、轮次统计、RPC 摘要。 */
     @JvmStatic
     fun getRuntimeLogFile(): File = ensureLogFile(getLogFile("runtime"))
 

@@ -1074,6 +1074,12 @@ class AntStall : ModelTask() {
         }
     }
 
+    /**
+     * 判断响应是否为「系统繁忙」类限流：只认 [ServerBusyPolicy] 认定的文案。
+     *
+     * 依次检查 `errorMessage` / `resultDesc` / `memo` 三套错误字段；
+     * 响应不是合法 JSON 时退回整串文本匹配。
+     */
     private fun isServerBusy(response: String?): Boolean {
         if (response.isNullOrBlank()) return false
         return try {
@@ -1086,6 +1092,9 @@ class AntStall : ModelTask() {
         }
     }
 
+    /**
+     * @brief 捐赠项目
+     */
     private fun donate() {
         try {
             val response = AntStallRpcCall.projectList()

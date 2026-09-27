@@ -139,7 +139,7 @@ object Logback {
             val policy = SizeAndTimeBasedRollingPolicy<ILoggingEvent>().apply {
                 context = lc
                 fileNamePattern = "${logDir}bak/$logName-%d{yyyy-MM-dd}.%i.log"
-                setMaxFileSize(FileSize.valueOf(maxFileSize)) // 还原为 50MB
+                setMaxFileSize(FileSize.valueOf(maxFileSize)) // 单文件上限：业务类 3MB / 核心类 7MB
                 // 保留 7 天：排查问题时经常需要回溯一周，3 天不够（实测「分析最近一周」直接拿不到数据）。
                 setTotalSizeCap(FileSize.valueOf(totalSizeCap))
                 maxHistory = 7

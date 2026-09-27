@@ -52,11 +52,12 @@ fun LogsContent(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
-        verticalArrangement = Arrangement.Center,
+        verticalArrangement = Arrangement.Center, // 居中显示
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         val modifier = Modifier.weight(1f)
 
+        // 使用 Grid 布局或者简单的 Row 组合：这里按分组用固定列数的 Row，比 Grid 更易对齐分组标题
         // ── 业务日志 ──
         SectionLabel("业务日志")
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -99,6 +100,7 @@ fun LogsContent(
     }
 }
 
+/** 分节标题：左对齐的小字灰标题，用于把按钮按「业务 / 系统 / 汇总」分组。 */
 @Composable
 private fun SectionLabel(text: String) {
     Text(

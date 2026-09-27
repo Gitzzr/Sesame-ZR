@@ -50,7 +50,6 @@ import lombok.Getter;
  */
 public class AntOcean extends ModelTask {
 
-    /** 记一次海洋奖励领取，失败不影响海洋流程。static 以便潘多拉领奖等静态方法调用。 */
     /** 今日完成核对用的开关快照，见 AntForest.dailyCheckSwitches。 */
     public Map<String, Boolean> dailyCheckSwitches() {
         Map<String, Boolean> switches = new LinkedHashMap<>();
@@ -121,6 +120,7 @@ public class AntOcean extends ModelTask {
         return reason.isEmpty() ? fallback : reason;
     }
 
+    /** 记一次海洋奖励领取，失败不影响海洋流程。static 以便潘多拉领奖等静态方法调用。 */
     private static void recordOceanReward(String title, String detail, boolean success, String reason) {
         DailyTaskLogRecorder.INSTANCE.recordReward(
                 UserMap.INSTANCE.getCurrentUid(),

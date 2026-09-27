@@ -251,6 +251,15 @@ object Notify {
         }
     }
 
+    /**
+     * 发送一条带动作按钮的错误 / 暂停通知。
+     *
+     * 通知通道与 ID 固定（[CHANNEL_ID] / [ERROR_NOTIFICATION_ID]），同一时刻只会存在一条；
+     * 未授权通知权限或通知服务未启动时静默返回。
+     *
+     * @param resumeAction 「已验证，恢复任务」按钮的回调；为 null 时不加该按钮
+     * @param skipAction 「跳过并恢复」按钮的回调；为 null 时不加该按钮
+     */
     @SuppressLint("StaticFieldLeak")
     @JvmStatic
     @JvmOverloads

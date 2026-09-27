@@ -5217,6 +5217,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
         recordGift(DailyTaskLogPolicy.GIFT_PROP, targetUserId, propName, success, reason)
     }
 
+    /** 赠送记录的公共落盘入口：[kind] 区分浇水 / 能量雨机会 / 道具。 */
     private fun recordGift(kind: String, targetUserId: String?, amount: String, success: Boolean, reason: String?) {
         DailyTaskLogRecorder.recordGift(
             UserMap.currentUid,
@@ -5232,7 +5233,6 @@ class AntForest : ModelTask(), EnergyCollectCallback {
         )
     }
 
-    /** 记一次森林奖励领取。 */
     /**
      * 今日完成核对用的开关快照。
      *
@@ -5273,11 +5273,6 @@ class AntForest : ModelTask(), EnergyCollectCallback {
     )
 
     /**
-     * 记一次有日次数上限的森林动作。
-     *
-     * 各功能在自己已有的成功或失败分支调用，不新增业务判断。
-     */
-    /**
      * 道具使用的公共入口只知道道具类型，核对项按功能名计数，这里做对应。
      * 未列入的道具不记，避免把收取类道具混进今日核对。
      */
@@ -5295,6 +5290,11 @@ class AntForest : ModelTask(), EnergyCollectCallback {
         writeForestAction(DailyTaskLogPolicy.ACTION_PROP_USE, title, propName, success, reason)
     }
 
+    /**
+     * 记一次有日次数上限的森林动作。
+     *
+     * 各功能在自己已有的成功或失败分支调用，不新增业务判断。
+     */
     internal fun writeForestAction(kind: String, title: String, detail: String, success: Boolean, reason: String?) {
         DailyTaskLogRecorder.recordAction(
             UserMap.currentUid,
@@ -5310,6 +5310,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
         )
     }
 
+    /** 记一次森林奖励领取。 */
     private fun recordForestReward(title: String, detail: String, success: Boolean, reason: String?) {
         DailyTaskLogRecorder.recordReward(
             UserMap.currentUid,

@@ -57,6 +57,13 @@ object DailyTaskLogRecorder {
         return if (loaded != null && loaded.day == day) loaded else DailyTaskLog(userId = userId, day = day)
     }
 
+    /**
+     * 读盘 → 合并 → 写回的公共骨架。
+     *
+     * 任何一步失败都只记日志：统计落盘不应影响任务本身的执行。
+     *
+     * @param merge 把已有记录与 [day]（自然日键）合成新记录，由 [DailyTaskLogPolicy] 提供
+     */
     private fun update(userId: String?, now: Long, merge: (DailyTaskLog?, String) -> DailyTaskLog) {
         if (userId.isNullOrEmpty()) {
             Log.record(TAG, "跳过今日任务落盘：当前账号为空")
@@ -89,6 +96,7 @@ object DailyTaskLogRecorder {
         }
     }
 
+    /** 序列化为带缩进的 JSON，便于人工排查。 */
     fun serialize(log: DailyTaskLog): String {
         return JsonHelper.mapper.writerWithDefaultPrettyPrinter().writeValueAsString(log)
     }

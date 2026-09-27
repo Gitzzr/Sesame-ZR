@@ -72,6 +72,15 @@ data class FriendListRef(
     val isCounted: Boolean get() = countDefault != null
 }
 
+/**
+ * 好友名单分类表的查询与推荐入口。
+ *
+ * 全部能力都是**纯函数式查询**，不持有状态：
+ * - 查询：[ofKind] / [byId] / [exclusionLists]
+ * - 推荐：[recommendedForMainList] / [recommendedForSubList] / [recommendedIds] / [recommendedLists]
+ * - 方向可用性：[isSelectable]
+ * - 隔离自检：[altWhitelistViolations] / [mainExclusionViolations]
+ */
 object AccountFriendListPolicy {
 
     private const val BASE = "BaseModel"
@@ -83,6 +92,7 @@ object AccountFriendListPolicy {
     private const val ORCHARD = "AntOrchard"
     private const val SPORTS = "AntSports"
 
+    /** [GateSwitch] 的简写构造器，缩短表里的登记行。 */
     private fun gate(model: String, field: String, label: String, value: Any) =
         GateSwitch(model, field, label, value)
 
@@ -264,8 +274,10 @@ object AccountFriendListPolicy {
 
     // ------------------------------------------------------------------ 查询
 
+    /** 按填充语义 [kind] 过滤出对应的功能项。 */
     fun ofKind(kind: FriendListKind): List<FriendListRef> = FRIEND_LISTS.filter { it.kind == kind }
 
+    /** 按 `模型.字段` 形式的 [id] 查功能项；查不到返回 null。 */
     fun byId(id: String): FriendListRef? = FRIEND_LISTS.firstOrNull { it.id == id }
 
     /** 大号档需要**移除**小号的排除类名单：大号要收小号的能量 */
@@ -300,6 +312,7 @@ object AccountFriendListPolicy {
     fun recommendedForSubList(): Set<String> =
         setOf(FOREST + ".alternativeAccountList")
 
+    /** 按方向取推荐功能 id 集合：[forMainList] 为 true 走 [recommendedForMainList]，否则走 [recommendedForSubList]。 */
     fun recommendedIds(forMainList: Boolean): Set<String> =
         if (forMainList) recommendedForMainList() else recommendedForSubList()
 
