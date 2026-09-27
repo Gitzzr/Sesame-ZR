@@ -194,6 +194,20 @@ public class Config {
      * @return 配置是否成功加载
      */
     public static synchronized Config load(String userId) {
+        return load(userId, true);
+    }
+
+    /**
+     * 加载配置文件，可选择只读。
+     *
+     * @param userId  用户 ID
+     * @param persist 是否允许写盘。传 false 时：既不把规范化 / 修复后的配置写回，
+     *                也不在解析失败时把配置重置成默认值。
+     *                只读页面（今日完成核对）必须传 false —— 它只是想读一下开关当前是开还是关，
+     *                不该因此改动用户的 config_v2.json：下面的写入分支里有「格式化后回写」
+     *                和「解析失败即重置为默认」两条，后者会直接抹掉用户配置。
+     */
+    public static synchronized Config load(String userId, boolean persist) {
         Log.record(TAG, "开始加载配置");
         String userName = "";
         File configV2File = null;
@@ -204,7 +218,9 @@ public class Config {
                 if (!configV2File.exists()) {
                     Log.record(TAG, "默认配置文件不存在，初始化新配置");
                     unload();
-                    Files.write2File(toSaveStr(), configV2File);
+                    if (persist) {
+                        Files.write2File(toSaveStr(), configV2File);
+                    }
                 }
             } else {
                 configV2File = Files.getConfigV2File(userId);
@@ -232,8 +248,10 @@ public class Config {
                         mapper.readerForUpdating(INSTANCE).readValue(cleanedJson);
                         Log.error(TAG, "成功移除问题字段并加载配置。");
                         // 保存修复后的配置
-                        Files.write2File(toSaveStr(), configV2File);
-                        Log.error(TAG, "已保存修复后的配置文件。");
+                        if (persist) {
+                            Files.write2File(toSaveStr(), configV2File);
+                            Log.error(TAG, "已保存修复后的配置文件。");
+                        }
                     } catch (Exception innerEx) {
                         Log.printStackTrace(TAG, "移除问题字段后，加载配置仍然失败。", innerEx);
                         throw innerEx; // 抛出内部异常，触发重置逻辑
@@ -241,27 +259,37 @@ public class Config {
                 }
 //                Log.record(TAG, "格式化配置成功:"+configV2File);
                 String formatted = toSaveStr();
-                if (formatted != null && !formatted.equals(json)) {
+                if (persist && formatted != null && !formatted.equals(json)) {
                     Files.write2File(formatted, configV2File);
                 }
             } else if (defaultConfigV2FileExists) {
                 String json = Files.readFromFile(Files.getDefaultConfigV2File());
                 JsonUtil.copyMapper().readerForUpdating(INSTANCE).readValue(json);
                 Log.record(TAG, "复制新配置: " + userName);
-                Files.write2File(json, configV2File);
+                if (persist) {
+                    Files.write2File(json, configV2File);
+                }
             } else {
                 unload();
-                Files.write2File(toSaveStr(), configV2File);
-            }
-        } catch (Throwable t) {
-            Log.printStackTrace(TAG, "重置配置失败", t);
-            try {
-                unload();
-                if (configV2File != null) {
+                if (persist) {
                     Files.write2File(toSaveStr(), configV2File);
                 }
-            } catch (Exception e) {
-                Log.printStackTrace(TAG, "重置配置失败", e);
+            }
+        } catch (Throwable t) {
+            if (persist) {
+                Log.printStackTrace(TAG, "重置配置失败", t);
+                try {
+                    unload();
+                    if (configV2File != null) {
+                        Files.write2File(toSaveStr(), configV2File);
+                    }
+                } catch (Exception e) {
+                    Log.printStackTrace(TAG, "重置配置失败", e);
+                }
+            } else {
+                // 只读加载：绝不重置用户配置，也不回写。内存里保留已解析到的部分，
+                // 由调用方按「值可能不全」处理。
+                Log.printStackTrace(TAG, "只读加载配置失败，未改动磁盘配置", t);
             }
         }
         INSTANCE.setInit(true);
