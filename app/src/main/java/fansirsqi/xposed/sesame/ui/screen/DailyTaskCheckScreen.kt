@@ -1,5 +1,9 @@
 package fansirsqi.xposed.sesame.ui.screen
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,13 +25,20 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.fasterxml.jackson.core.type.TypeReference
 import fansirsqi.xposed.sesame.model.Model
 import fansirsqi.xposed.sesame.task.ActionEntry
 import fansirsqi.xposed.sesame.task.DailyTaskLog
@@ -40,7 +51,10 @@ import fansirsqi.xposed.sesame.task.GiftTally
 import fansirsqi.xposed.sesame.task.RewardEntry
 import fansirsqi.xposed.sesame.task.antFarm.AntFarm
 import fansirsqi.xposed.sesame.task.antForest.AntForest
+import fansirsqi.xposed.sesame.task.antForest.EcoLife
+import fansirsqi.xposed.sesame.task.antForest.PlatePhoto
 import fansirsqi.xposed.sesame.task.antOcean.AntOcean
+import fansirsqi.xposed.sesame.util.DataStore
 import fansirsqi.xposed.sesame.util.maps.UserMap
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -57,6 +71,10 @@ import java.util.TimeZone
 @Composable
 fun DailyTaskCheckScreen(onBack: () -> Unit) {
     val snapshot = remember { loadSnapshot() }
+    // 明细可能上百条（实测单日「任务与道具」113 条），默认折叠，需要时再展开
+    var rainExpanded by remember { mutableStateOf(false) }
+    var rewardExpanded by remember { mutableStateOf(false) }
+    var actionExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -86,6 +104,17 @@ fun DailyTaskCheckScreen(onBack: () -> Unit) {
 
             SummaryCard(snapshot)
 
+            if (!snapshot.switchesLoaded) {
+                // 本页所在进程没加载任务模型，开关快照为空。
+                // 不能把「读不到开关」显示成「都没开」——那会让人误以为配置丢了。
+                SectionCard(title = "开关状态未读取", tone = SectionTone.NORMAL) {
+                    EmptyHint(
+                        "本次没读到任务开关，所以「需要处理」与「未开启」暂时为空，" +
+                            "下面只展示今天已经记录到的结果。打开一次账号设置页后再进来即可读到。"
+                    )
+                }
+            }
+
             if (snapshot.attention.isNotEmpty()) {
                 SectionCard(title = "需要处理", tone = SectionTone.ALERT) {
                     snapshot.attention.forEach { StatusRow(it) }
@@ -96,7 +125,22 @@ fun DailyTaskCheckScreen(onBack: () -> Unit) {
                 if (snapshot.energyRain.isEmpty()) {
                     EmptyHint("今日无记录")
                 } else {
-                    snapshot.energyRain.forEach { EnergyRainRow(it) }
+                    // 默认只给汇总：完成次数与总收获克数；逐次克数点「明细」再看
+                    ExpandRow(
+                        summary = buildString {
+                            append("完成 ${snapshot.rainSuccess} 次　共 ${snapshot.rainGrams}g")
+                            if (snapshot.rainFail > 0) append("　失败 ${snapshot.rainFail} 次")
+                        },
+                        summaryColor = if (snapshot.rainFail > 0) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                        expanded = rainExpanded,
+                        detailLabel = "明细 ${snapshot.energyRain.size} 条",
+                        onToggle = { rainExpanded = !rainExpanded }
+                    )
+                    if (rainExpanded) snapshot.energyRain.forEach { EnergyRainRow(it) }
                 }
             }
 
@@ -113,19 +157,50 @@ fun DailyTaskCheckScreen(onBack: () -> Unit) {
             }
 
             SectionCard(title = "任务奖励", tone = SectionTone.NORMAL) {
+                val failed = snapshot.rewards.filter { !it.success }
+                val succeeded = snapshot.rewards.filter { it.success }
                 if (snapshot.rewards.isEmpty()) {
                     EmptyHint("今日无记录")
                 } else {
-                    ModuleGroups(snapshot.rewards, { it.module }) { RewardRow(it) }
+                    // 失败始终展示，成功的明细折叠起来
+                    ModuleGroups(failed, { it.module }) { RewardRow(it) }
+                    if (succeeded.isNotEmpty()) {
+                        ExpandRow(
+                            summary = "成功 ${succeeded.size} 条",
+                            summaryColor = MaterialTheme.colorScheme.onSurface,
+                            expanded = rewardExpanded,
+                            detailLabel = "成功明细",
+                            onToggle = { rewardExpanded = !rewardExpanded }
+                        )
+                        if (rewardExpanded) ModuleGroups(succeeded, { it.module }) { RewardRow(it) }
+                    }
                 }
             }
 
             SectionCard(title = "任务与道具", tone = SectionTone.NORMAL) {
+                val failed = snapshot.actions.filter { !it.success }
+                val succeeded = snapshot.actions.filter { it.success }
                 if (snapshot.actions.isEmpty()) {
                     EmptyHint("今日无记录")
                 } else {
-                    ModuleGroups(snapshot.actions, { it.module }) { ActionRow(it) }
+                    ModuleGroups(failed, { it.module }) { ActionRow(it) }
+                    if (succeeded.isNotEmpty()) {
+                        ExpandRow(
+                            summary = "成功 ${succeeded.size} 条",
+                            summaryColor = MaterialTheme.colorScheme.onSurface,
+                            expanded = actionExpanded,
+                            detailLabel = "成功明细",
+                            onToggle = { actionExpanded = !actionExpanded }
+                        )
+                        if (actionExpanded) ModuleGroups(succeeded, { it.module }) { ActionRow(it) }
+                    }
                 }
+            }
+
+            SectionCard(title = "绿色行动", tone = SectionTone.NORMAL) {
+                snapshot.ecoTasks.forEach { EcoTaskRow(it) }
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                PlatePhotoArea(snapshot.platePhotos)
             }
 
             Spacer(Modifier.height(8.dp))
@@ -145,12 +220,42 @@ private data class CheckSnapshot(
     val actions: List<ActionEntry>,
     val rainSuccess: Int,
     val rainFail: Int,
+    /** 今日能量雨累计收获克数，用于汇总行 */
+    val rainGrams: Int,
     val giftSuccess: Int,
     val giftFail: Int,
     val rewardSuccess: Int,
     val rewardFail: Int,
     val actionSuccess: Int,
-    val actionFail: Int
+    val actionFail: Int,
+    /** 绿色行动两项任务各自的完成情况 */
+    val ecoTasks: List<EcoTaskView>,
+    /** 已抓取的光盘行动照片，按抓取时间倒序 */
+    val platePhotos: List<PlatePhoto>,
+    /** 是否成功读到任务开关；为空说明模型没加载，页面需要如实说明而不是当成「都没开」 */
+    val switchesLoaded: Boolean
+)
+
+/**
+ * 绿色行动里一项任务的完成情况。
+ *
+ * 「绿色打卡」与「光盘行动」是两个独立选项，这里让它们各自成行，
+ * 不再合并成一个看不出缺哪个的「绿色行动」。
+ */
+private data class EcoTaskView(
+    val name: String,
+    /**
+     * 该选项当前是否开启。
+     *
+     * null 表示**未知**：本页所在进程没加载模型（`Model.initAllModel()` 只在支付宝进程与
+     * 账号设置页里执行），此时开关快照是空的，不能凭空说「未开启」—— 那是在撒谎。
+     */
+    val enabled: Boolean?,
+    val successCount: Int,
+    val failCount: Int,
+    val lastReason: String?,
+    /** 最近一次动作时间，0 表示今天没有记录 */
+    val lastAt: Long
 )
 
 private fun loadSnapshot(): CheckSnapshot {
@@ -173,13 +278,51 @@ private fun loadSnapshot(): CheckSnapshot {
         actions = log.actions.sortedWith(compareBy({ it.success }, { -it.at })),
         rainSuccess = log.energyRain.count { it.success },
         rainFail = log.energyRain.count { !it.success },
+        rainGrams = log.energyRain.filter { it.success }.sumOf { it.grams },
         giftSuccess = log.gifts.count { it.success },
         giftFail = log.gifts.count { !it.success },
         rewardSuccess = log.rewards.count { it.success },
         rewardFail = log.rewards.count { !it.success },
         actionSuccess = log.actions.count { it.success },
-        actionFail = log.actions.count { !it.success }
+        actionFail = log.actions.count { !it.success },
+        ecoTasks = listOf(
+            ecoTaskView(EcoLife.TITLE_CHECK_IN, enabled, log.actions),
+            ecoTaskView(EcoLife.TITLE_PLATE, enabled, log.actions)
+        ),
+        platePhotos = runCatching { readPlatePhotos() }.getOrDefault(emptyList()),
+        switchesLoaded = enabled.isNotEmpty()
     )
+}
+
+/** 汇总绿色行动某一项的今日成败与最近一次动作时间；开关取不到时 [EcoTaskView.enabled] 为 null。 */
+private fun ecoTaskView(
+    name: String,
+    enabled: Map<String, Boolean>,
+    actions: List<ActionEntry>
+): EcoTaskView {
+    val items = actions.filter { it.title == name }
+    return EcoTaskView(
+        name = name,
+        enabled = enabled[name],
+        successCount = items.count { it.success },
+        failCount = items.count { !it.success },
+        lastReason = items.lastOrNull { !it.success }?.reason,
+        lastAt = items.maxOfOrNull { it.at } ?: 0L
+    )
+}
+
+/**
+ * 读取已缓存的光盘行动照片。
+ *
+ * `plate` 是模块自己写入的缓存，键名与 [PlatePhoto] 的字段一一对应；
+ * 解析不出来的条目直接丢弃，不让一条坏数据把整页拖垮。
+ */
+private fun readPlatePhotos(): List<PlatePhoto> {
+    val raw = DataStore.getOrCreate(
+        "plate",
+        object : TypeReference<MutableList<MutableMap<String?, String?>>>() {}
+    )
+    return raw.mapNotNull { PlatePhoto.fromRaw(it) }.sortedByDescending { it.at }
 }
 
 /** 汇总各任务模型里与今日核对相关的开关；模型未初始化时跳过。 */
@@ -355,9 +498,141 @@ private fun RecordRow(title: String, trailing: String, failed: Boolean, detail: 
     }
 }
 
-private enum class SectionTone { NORMAL, ALERT }
-
+/** 折叠区的汇总行：左侧一句话汇总，右侧按钮展开或收起明细。 */
 @Composable
+private fun ExpandRow(
+    summary: String,
+    summaryColor: Color,
+    expanded: Boolean,
+    detailLabel: String,
+    onToggle: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = summary,
+            style = MaterialTheme.typography.bodyMedium,
+            color = summaryColor,
+            modifier = Modifier.weight(1f)
+        )
+        TextButton(onClick = onToggle) {
+            Text(if (expanded) "收起" else detailLabel)
+        }
+    }
+}
+
+/**
+ * 绿色行动里的一项任务。
+ *
+ * 三种状态分开说：开关没开、开了但今天没记录、有记录但失败了 ——
+ * 合并成一句「今日无记录」会让用户分不清是不是自己没开。
+ */
+@Composable
+private fun EcoTaskRow(task: EcoTaskView) {
+    val label = when {
+        task.enabled == false -> "未开启"
+        task.successCount == 0 && task.failCount == 0 -> "今日无记录"
+        task.failCount > 0 -> "成功 ${task.successCount}　失败 ${task.failCount}"
+        else -> "成功 ${task.successCount} 次"
+    }
+    val labelColor = when {
+        task.enabled == false -> MaterialTheme.colorScheme.onSurfaceVariant
+        task.failCount > 0 || task.successCount == 0 -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = task.name,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
+            )
+            Text(text = label, style = MaterialTheme.typography.bodyMedium, color = labelColor)
+        }
+        val detail = listOfNotNull(
+            formatTime(task.lastAt).takeIf { it.isNotEmpty() }?.let { "最近 $it" },
+            task.lastReason?.takeIf { it.isNotBlank() }
+        ).joinToString("　")
+        if (detail.isNotEmpty()) {
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/**
+ * 光盘行动照片区。
+ *
+ * 用户原话：「手动提交一次后可以完成任务了，但无法准确看到是否已经抓取到图片」。
+ * 这里给出已缓存的组数、最近抓取时间，并允许逐组打开餐前/餐后照片；
+ * 一组都没有时直接说明该怎么办，而不是只显示一行空白。
+ */
+@Composable
+private fun PlatePhotoArea(photos: List<PlatePhoto>) {
+    val context = LocalContext.current
+    if (photos.isEmpty()) {
+        EmptyHint("光盘照片：还没抓到。先在支付宝完成一次光盘打卡，模块会自动缓存餐前/餐后照片")
+        return
+    }
+    val latest = photos.first().at
+    Text(
+        text = if (latest > 0) {
+            "光盘照片：已缓存 ${photos.size} 组，最近抓取 ${formatTime(latest)}"
+        } else {
+            "光盘照片：已缓存 ${photos.size} 组"
+        },
+        style = MaterialTheme.typography.bodyMedium
+    )
+    photos.forEach { photo ->
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = formatTime(photo.at).ifEmpty { "旧记录" },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (photo.beforeUrl.isNotEmpty()) {
+                    TextButton(onClick = { openUrl(context, photo.beforeUrl) }) { Text("餐前") }
+                }
+                if (photo.afterUrl.isNotEmpty()) {
+                    TextButton(onClick = { openUrl(context, photo.afterUrl) }) { Text("餐后") }
+                }
+                if (!photo.hasPreview) {
+                    // 旧记录只存了上传用的图片 ID，没有地址可打开
+                    Text(
+                        text = "仅图片 ID，无法预览",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 交给系统打开图片地址；没有可用应用时给一句提示，不让点击悄无声息。 */
+private fun openUrl(context: Context, url: String) {
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    runCatching { context.startActivity(intent) }.onFailure {
+        Toast.makeText(context, "没有可以打开图片的应用", Toast.LENGTH_SHORT).show()
+    }
+}
+
+private enum class SectionTone { NORMAL, ALERT }@Composable
 private fun SectionCard(title: String, tone: SectionTone, content: @Composable () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),

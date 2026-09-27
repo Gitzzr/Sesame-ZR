@@ -13,6 +13,7 @@ import fansirsqi.xposed.sesame.entity.OtherEntityProvider.listHealthcareOptions
 import fansirsqi.xposed.sesame.entity.VitalityStore
 import fansirsqi.xposed.sesame.entity.VitalityStore.Companion.getNameById
 import fansirsqi.xposed.sesame.util.GameTask
+import fansirsqi.xposed.sesame.hook.DayBlockedPolicy
 import fansirsqi.xposed.sesame.hook.RequestManager.requestString
 import fansirsqi.xposed.sesame.hook.Toast
 import fansirsqi.xposed.sesame.hook.internal.AlipayMiniMarkHelper
@@ -3781,6 +3782,12 @@ class AntForest : ModelTask(), EnergyCollectCallback {
      * @param targetUserId 目标用户的ID。
      */
     private fun giveProp(targetUserId: String?) {
+        // 服务端已经说过「请明天再试」时今天不再尝试：每轮试一次换不来结果，
+        // 只会继续堆风控计数（2026-09-27 实测从 02:24 一直重复到深夜）。
+        if (Status.hasFlagToday(FLAG_GIVE_PROP_BLOCKED)) {
+            Log.record(TAG, "赠送道具今日已被限制，跳过")
+            return
+        }
         try {
             do {
                 // 查询道具列表
@@ -3810,6 +3817,14 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                             Log.record(rt)
                             Log.record(giveResultJo.toString())
                             recordPropGift(targetUserId, propName, false, rt)
+                            // 记下来，今天剩下的轮次不再重复这一请求
+                            if (DayBlockedPolicy.isDayBlocked(
+                                    giveResultJo.optString("resultCode"),
+                                    rt
+                                )
+                            ) {
+                                Status.setFlagToday(FLAG_GIVE_PROP_BLOCKED)
+                            }
                             if (rt.contains("异常")) {
                                 return
                             }
@@ -5240,7 +5255,9 @@ class AntForest : ModelTask(), EnergyCollectCallback {
         "1.1倍卡" to (robExpandCard?.value != ApplyPropType.CLOSE),
         "隐身卡" to (stealthCard?.value != ApplyPropType.CLOSE),
         "活力值兑换" to (vitalityExchange?.value == true),
-        "绿色行动" to (ecoLife?.value == true),
+        // 绿色行动按选项拆成两项：勾了哪项才核对哪项，合并成一项会看不出缺的是哪一个
+        "绿色打卡" to (ecoLife?.value == true && ecoLifeOption?.value?.contains("tick") == true),
+        "光盘行动" to (ecoLife?.value == true && ecoLifeOption?.value?.contains("plate") == true),
         "森林集市" to (forestMarket?.value == true),
         "绿色医疗" to (medicalHealth?.value == true),
         "青春特权道具" to (youthPrivilege?.value == true),
@@ -5474,6 +5491,9 @@ class AntForest : ModelTask(), EnergyCollectCallback {
         // 保持向后兼容
         /** 保护罩续写阈值（HHmm），例如 2359 表示 23小时59分  */
         private const val SHIELD_RENEW_THRESHOLD_HHMM = 2359
+
+        /** 赠送道具被服务端限制到明天的当日标志，避免每轮重复一次注定失败的请求。 */
+        private const val FLAG_GIVE_PROP_BLOCKED = "AntForest::givePropBlocked"
         var giveEnergyRainList: SelectModelField? = null //能量雨赠送列表
         var medicalHealthOption: SelectModelField? = null //医疗健康选项
         var ecoLifeOption: SelectModelField? = null

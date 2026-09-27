@@ -53,6 +53,33 @@ object UserMap {
     }
 
     /**
+     * 进程重启后把当前账号补回来。
+     *
+     * [currentUid] 只活在内存里：写它的地方只有账号设置页（intent 带 userId 的
+     * `WebSettingsActivity` / `SettingActivity`）和宿主侧的 `HookUtil`。
+     * 模块 App 自身的进程被重启（覆盖安装 APK、被系统回收）后就变成 null，
+     * 于是「今日完成」这类只读页面会显示「未载入账号」并且读不到任何记录 ——
+     * 而记录一直好好躺在 `config/<uid>/daily_tasks.json` 里。
+     *
+     * 这里从落盘的 `activedUser` 兜回，并补一次 [loadSelf] 让掩码名可解析。
+     *
+     * @return 当前账号（原有或刚恢复的）；都取不到时返回 null
+     */
+    @JvmStatic
+    fun restoreActiveUserIfAbsent(): String? {
+        val existing = currentUid
+        if (!existing.isNullOrEmpty()) return existing
+        // DataStore 未初始化、字段缺失都不能让页面崩掉，取不到就照旧显示未载入账号。
+        val uid = runCatching { DataStore.get("activedUser", UserEntity::class.java)?.userId }
+            .getOrNull()
+        if (uid.isNullOrEmpty()) return null
+        setCurrentUserId(uid)
+        runCatching { loadSelf(uid) }
+        Log.record(TAG, "currentUid 为空，已从 activedUser 恢复为 $uid")
+        return uid
+    }
+
+    /**
      * 获取当前用户的掩码名称
      * 修复：如果 currentUid 为 null，直接返回 null，避免 ConcurrentHashMap 崩溃
      */
