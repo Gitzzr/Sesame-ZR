@@ -133,6 +133,22 @@ object VerificationPausePolicy {
     }
 
     /**
+     * 运行期间（不停进程）是否应当就地解除暂停。
+     *
+     * 与启动路径不同，这里没有「保持不动」这一档：要么暂停依然新鲜、继续拦，
+     * 要么已经该放行。判定放进纯函数是为了能被单测覆盖 ——
+     * 2026-09-27 实测 06:36:51 暂停后一直挂到 15:32:21 支付宝重启才解除（近 9 小时），
+     * 就是因为运行期只认内存里的暂停态、从不复核时间戳。
+     *
+     * @param hasMark 宿主存储里是否存在该账号的暂停标志
+     */
+    @JvmStatic
+    fun shouldReleaseExpiredPause(hasMark: Boolean, markedAt: Long, now: Long): Boolean {
+        if (!hasMark) return true
+        return isMarkExpired(markedAt, now)
+    }
+
+    /**
      * 启动时对已落盘暂停标志应当采取的动作。
      *
      * 把「读标志 → 判过期 → 决策」抽成纯函数，是为了让这条分支能被 JVM 单测覆盖：

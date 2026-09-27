@@ -3,6 +3,7 @@ package fansirsqi.xposed.sesame.task.antStall
 import android.util.Base64
 import fansirsqi.xposed.sesame.data.Status
 import fansirsqi.xposed.sesame.data.StatusFlags
+import fansirsqi.xposed.sesame.hook.ServerBusyPolicy
 import fansirsqi.xposed.sesame.entity.AlipayUser
 import fansirsqi.xposed.sesame.model.ModelFields
 import fansirsqi.xposed.sesame.model.ModelGroup
@@ -1073,9 +1074,18 @@ class AntStall : ModelTask() {
         }
     }
 
-    /**
-     * @brief 捐赠项目
-     */
+    private fun isServerBusy(response: String?): Boolean {
+        if (response.isNullOrBlank()) return false
+        return try {
+            val json = JSONObject(response)
+            ServerBusyPolicy.isBusy(json.optString("errorMessage"))
+                    || ServerBusyPolicy.isBusy(json.optString("resultDesc"))
+                    || ServerBusyPolicy.isBusy(json.optString("memo"))
+        } catch (t: Throwable) {
+            ServerBusyPolicy.isBusy(response)
+        }
+    }
+
     private fun donate() {
         try {
             val response = AntStallRpcCall.projectList()
@@ -1110,6 +1120,10 @@ class AntStall : ModelTask() {
                     if (detailJson.optString("resultCode", "") == "SUCCESS") {
                         // 执行捐赠
                         val donateResponse = AntStallRpcCall.projectDonate(projectId)
+                        if (isServerBusy(donateResponse)) {
+                            Log.record(TAG, "蚂蚁新村捐赠系统繁忙，本轮跳过")
+                            return
+                        }
                         val donateJson = JSONObject(donateResponse)
 
                         val astProjectVO = donateJson.optJSONObject("astProjectVO")
@@ -1316,6 +1330,10 @@ class AntStall : ModelTask() {
             while (true) {
                 try {
                     val response = AntStallRpcCall.nextTicketFriend()
+                    if (isServerBusy(response)) {
+                        Log.record(TAG, "蚂蚁新村贴罚单系统繁忙，本轮跳过")
+                        return
+                    }
                     val json = JSONObject(response)
 
                     if (!json.optBoolean("success")) {

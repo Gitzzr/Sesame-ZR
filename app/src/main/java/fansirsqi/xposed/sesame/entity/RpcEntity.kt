@@ -51,6 +51,14 @@ class RpcEntity @JvmOverloads constructor(
         }
     }
 
+    /**
+     * 这是一份可交给调用方处理的业务响应，不再触发桥内重试。
+     */
+    fun acceptResponse() {
+        this.hasError = false
+        this.hasResult = true
+    }
+
     @get:Throws(JSONException::class)
     val rpcFullRequestData: String
         /**

@@ -16,6 +16,7 @@ import fansirsqi.xposed.sesame.data.General;
 import fansirsqi.xposed.sesame.entity.RpcEntity;
 import fansirsqi.xposed.sesame.hook.ApplicationHook;
 import fansirsqi.xposed.sesame.hook.RequestManager;
+import fansirsqi.xposed.sesame.hook.ServerBusyPolicy;
 import fansirsqi.xposed.sesame.hook.VerificationPausePolicy;
 import fansirsqi.xposed.sesame.hook.rpc.intervallimit.RpcIntervalLimit;
 import fansirsqi.xposed.sesame.model.BaseModel;
@@ -290,6 +291,9 @@ public class NewRpcBridge implements RpcBridge {
             do {
                 count++;
                 try {
+                    if (ApplicationHook.offline) {
+                        return verificationRequiredResponse(rpcEntity);
+                    }
                     if (!fansirsqi.xposed.sesame.hook.RpcDispatchGate.awaitPermission(
                             () -> ApplicationHook.offline,
                             () -> RpcIntervalLimit.INSTANCE.enterIntervalLimit(Objects.requireNonNull(rpcEntity.getRequestMethod())))) {
@@ -373,6 +377,14 @@ public class NewRpcBridge implements RpcBridge {
                         if (RequestManager.isVerificationRequired(errorCode, errorMessage)) {
                             RequestManager.handleVerificationRequired(methodName, errorCode, errorMessage);
                             return verificationRequiredResponse(rpcEntity);
+                        }
+
+                        // 支付宝已经要求稍后再试。把原文带回调用方，不再在 1 秒内连打。
+                        // 单独的 1009 仍走下面的网络错误重试，避免把普通业务拒绝一并停掉。
+                        if (ServerBusyPolicy.isBusy(errorMessage)) {
+                            Log.record(TAG, "系统繁忙，本轮不再重试 | 方法: " + methodName);
+                            rpcEntity.acceptResponse();
+                            return rpcEntity;
                         }
 
                         if (errorMark.contains(errorCode) || errorStringMark.contains(errorMessage)) {
