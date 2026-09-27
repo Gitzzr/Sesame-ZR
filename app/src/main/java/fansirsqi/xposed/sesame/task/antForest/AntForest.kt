@@ -5240,7 +5240,9 @@ class AntForest : ModelTask(), EnergyCollectCallback {
         "1.1倍卡" to (robExpandCard?.value != ApplyPropType.CLOSE),
         "隐身卡" to (stealthCard?.value != ApplyPropType.CLOSE),
         "活力值兑换" to (vitalityExchange?.value == true),
-        "绿色行动" to (ecoLife?.value == true),
+        // 绿色行动按选项拆成两项：勾了哪项才核对哪项，合并成一项会看不出缺的是哪一个
+        "绿色打卡" to (ecoLife?.value == true && ecoLifeOption?.value?.contains("tick") == true),
+        "光盘行动" to (ecoLife?.value == true && ecoLifeOption?.value?.contains("plate") == true),
         "森林集市" to (forestMarket?.value == true),
         "绿色医疗" to (medicalHealth?.value == true),
         "青春特权道具" to (youthPrivilege?.value == true),

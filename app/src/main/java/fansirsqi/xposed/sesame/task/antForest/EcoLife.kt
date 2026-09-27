@@ -18,7 +18,17 @@ import java.util.regex.Pattern
 object EcoLife {
     val TAG: String = EcoLife::class.java.getSimpleName()
 
-    /** 绿色行动的开通、打卡和光盘行动共用一个核对项，失败原因只用响应里已有的描述。 */
+    /**
+     * 绿色行动下的两个核对项名称。
+     *
+     * 必须与 `AntForest.dailyCheckSwitches()` 里的键一字不差，否则今日完成页会显示「今日无记录」。
+     * 拆成两项是因为「绿色打卡」与「光盘行动」是两个独立选项（见 `listEcoLifeOptions`），
+     * 合并成一项会让用户看不出到底缺哪一个。
+     */
+    const val TITLE_CHECK_IN: String = "绿色打卡"
+    const val TITLE_PLATE: String = "光盘行动"
+
+    /** 绿色行动的开通、查询、打卡记到「绿色打卡」，失败原因只用响应里已有的描述。 */
     private fun recordEcoAction(title: String, detail: String, success: Boolean, reason: String?) {
         AntForest.recordForestAction(
             fansirsqi.xposed.sesame.task.DailyTaskLogPolicy.ACTION_CHECKIN,
@@ -44,7 +54,7 @@ object EcoLife {
             if (!jsonObject.optBoolean("success")) {
                 val resultDesc = jsonObject.optString("resultDesc", "查询失败")
                 Log.record("$TAG.ecoLife.queryHomePage", resultDesc)
-                recordEcoAction("绿色行动", "查询", false, resultDesc)
+                recordEcoAction(TITLE_CHECK_IN, "查询", false, resultDesc)
                 return
             }
             var data = jsonObject.getJSONObject("data")
@@ -92,16 +102,16 @@ object EcoLife {
         if (!jsonObject.optBoolean("success")) {
             val resultDesc = jsonObject.optString("resultDesc", "开通失败")
             Log.record("$TAG.ecoLife.openEcolife", resultDesc)
-            recordEcoAction("绿色行动", "开通", false, resultDesc)
+            recordEcoAction(TITLE_CHECK_IN, "开通", false, resultDesc)
             return false
         }
         val opResult = JsonUtil.getValueByPath(jsonObject, "data.opResult")
         if ("true" != opResult) {
-            recordEcoAction("绿色行动", "开通", false, "开通失败")
+            recordEcoAction(TITLE_CHECK_IN, "开通", false, "开通失败")
             return false
         }
         Log.forest("绿色任务🍀报告大人，开通成功(～￣▽￣)～可以愉快的玩耍了")
-        recordEcoAction("绿色行动", "开通", true, null)
+        recordEcoAction(TITLE_CHECK_IN, "开通", true, null)
         return true
     }
 
@@ -133,13 +143,13 @@ object EcoLife {
                     val jo = JSONObject(AntForestRpcCall.ecolifeTick(actionId, dayPoint, source))
                     if (ResChecker.checkRes(TAG, jo)) {
                         Log.forest("绿色打卡🍀[$actionName]") // 成功打卡日志
-                        recordEcoAction("绿色行动", actionName, true, null)
+                        recordEcoAction(TITLE_CHECK_IN, actionName, true, null)
                     } else {
                         // 记录失败原因
                         val resultDesc = jo.optString("resultDesc", "打卡失败")
                         Log.error(TAG + resultDesc)
                         Log.error(TAG + jo)
-                        recordEcoAction("绿色行动", actionName, false, resultDesc)
+                        recordEcoAction(TITLE_CHECK_IN, actionName, false, resultDesc)
                     }
                 }
             }
@@ -191,25 +201,35 @@ object EcoLife {
                     // 使用正则从URL中提取照片的路径部分
                     val pattern = Pattern.compile("img/(.*)/original")
                     val beforeMatcher = pattern.matcher(beforeMealsImageUrl)
-                    if (beforeMatcher.find()) {
-                        photo!!["before"] = beforeMatcher.group(1)
-                    }
+                    val beforeId = if (beforeMatcher.find()) beforeMatcher.group(1) else null
                     val afterMatcher = pattern.matcher(afterMealsImageUrl)
-                    if (afterMatcher.find()) {
-                        photo!!["after"] = afterMatcher.group(1)
-                    }
-                    // 避免重复添加相同的照片信息
-                    var exists = false
-                    for (p in allPhotos) {
-                        if (p["before"] == photo!!["before"] && p["after"] == photo["after"]
-                        ) {
-                            exists = true
-                            break
+                    val afterId = if (afterMatcher.find()) afterMatcher.group(1) else null
+                    // 两个 ID 缺一不可：只有单个 ID 时上传接口必然失败，
+                    // 旧实现会把这种残缺条目也塞进缓存，后面随机取到就白跑一次。
+                    if (beforeId != null && afterId != null) {
+                        val captured = HashMap<String?, String?>()
+                        captured["before"] = beforeId
+                        captured["after"] = afterId
+                        // 同时留一份完整地址与抓取时间，今日完成页据此提供查看入口（见 PlatePhoto）。
+                        // 原先只存 ID，用户没法确认到底抓到没有。
+                        captured["beforeUrl"] = beforeMealsImageUrl
+                        captured["afterUrl"] = afterMealsImageUrl
+                        captured["at"] = System.currentTimeMillis().toString()
+                        // 避免重复添加相同的照片信息
+                        var exists = false
+                        for (p in allPhotos) {
+                            if (p["before"] == beforeId && p["after"] == afterId) {
+                                exists = true
+                                break
+                            }
                         }
-                    }
-                    if (!exists) {
-                        allPhotos.add(photo!!)
-                        put("plate", allPhotos)
+                        if (!exists) {
+                            allPhotos.add(captured)
+                            put("plate", allPhotos)
+                            Log.record("$TAG 已抓取光盘照片: $beforeId / $afterId")
+                        }
+                    } else {
+                        Log.record("$TAG 光盘照片地址无法解析，跳过缓存")
                     }
                 }
             }
@@ -219,6 +239,9 @@ object EcoLife {
             if (allPhotos.isEmpty()) {
                 if (!Status.hasFlagToday("EcoLife::plateNotify0")) {
                     Log.forest("光盘行动🍛缓存中没有照片数据")
+                    // 记一条失败，今日完成页才会显示「光盘行动 失败 + 原因」，
+                    // 否则用户只看到没记录，分不清是没跑还是跑了没照片。
+                    recordEcoAction(TITLE_PLATE, "", false, "缓存中没有照片数据")
                     Status.setFlagToday("EcoLife::plateNotify0")
                 }
                 photo = null
@@ -228,6 +251,7 @@ object EcoLife {
             if (photo == null) {
                 if (!Status.hasFlagToday("EcoLife::plateNotify1")) {
                     Log.forest("光盘行动🍛请先完成一次光盘打卡")
+                    recordEcoAction(TITLE_PLATE, "", false, "请先完成一次光盘打卡")
                     Status.setFlagToday("EcoLife::plateNotify1")
                 }
                 return
@@ -268,7 +292,7 @@ object EcoLife {
             Status.setFlagToday("EcoLife::photoGuangPan")
             Log.forest(toastMsg)
             Toast.show(toastMsg)
-            recordEcoAction("绿色行动", "光盘行动", true, null)
+            recordEcoAction(TITLE_PLATE, "提交成功", true, null)
         } catch (t: Throwable) {
             // 捕获异常，记录错误信息和堆栈追踪
             Log.record(TAG, "photoGuangPan err:")
