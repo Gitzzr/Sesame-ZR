@@ -98,10 +98,10 @@ data class GiftTally(
     val failCount: Int
 )
 
-/** 一个预期项的核对结论。 */
 /** 核对计数只关心成败和原因，奖励与动作共用。 */
 private data class Outcome(val success: Boolean, val reason: String?)
 
+/** 一个预期项的核对结论。 */
 data class ExpectedTaskStatus(
     /** 展示名，如「能量雨」「好友浇水」 */
     val name: String,
@@ -142,6 +142,7 @@ object DailyTaskLogPolicy {
         return if (prev != null && prev.day == day) prev else DailyTaskLog(userId = userId, day = day)
     }
 
+    /** 追加一次能量雨结算，并把 [now] 记为 updatedAt。 */
     fun addEnergyRain(
         prev: DailyTaskLog?,
         userId: String,
@@ -153,6 +154,7 @@ object DailyTaskLogPolicy {
         return b.copy(userId = userId, energyRain = b.energyRain + entry, updatedAt = now)
     }
 
+    /** 追加一次能量赠送，并把 [now] 记为 updatedAt。 */
     fun addGift(
         prev: DailyTaskLog?,
         userId: String,
@@ -164,6 +166,7 @@ object DailyTaskLogPolicy {
         return b.copy(userId = userId, gifts = b.gifts + entry, updatedAt = now)
     }
 
+    /** 追加一次有日次数上限的动作，并把 [now] 记为 updatedAt。 */
     fun addAction(
         prev: DailyTaskLog?,
         userId: String,
@@ -175,6 +178,7 @@ object DailyTaskLogPolicy {
         return b.copy(userId = userId, actions = b.actions + entry, updatedAt = now)
     }
 
+    /** 追加一次奖励领取，并把 [now] 记为 updatedAt。 */
     fun addReward(
         prev: DailyTaskLog?,
         userId: String,

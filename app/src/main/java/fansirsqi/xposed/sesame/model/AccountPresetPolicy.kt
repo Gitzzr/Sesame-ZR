@@ -65,6 +65,17 @@ data class PresetField(
     fun valueFor(tier: PresetTier): Any? = if (tier == PresetTier.MAIN) mainValue else altValue
 }
 
+/**
+ * 档位预设表：两份档位（大号 MAIN / 小号 ALT）各自要写入哪些设置项、写什么值。
+ *
+ * 表里每一行都是「模型 + 字段 + 档位取值」，纯静态数据，不依赖 Android API。
+ * 安全性不靠运行时判断，而是靠**显式登记**：
+ * - [FieldScope.SELF]：只影响本账号，两档取值可自由不同；
+ * - [FieldScope.CROSS_ACCOUNT]：会动到其他账号的资源，小号档必须给出中性取值
+ *   （开关类显式关闭、名单类 [KEEP] 不覆盖、动作选择器由 [PresetField.altGuardField] 兜底）。
+ *
+ * 表规模与「无重复登记」「字段真实存在」等不变量都由单元测试锁定，改表必须同步文档口径。
+ */
 object AccountPresetPolicy {
 
     /** 不覆盖：沿用账号当前值 */
@@ -110,6 +121,7 @@ object AccountPresetPolicy {
     private fun self(model: String, code: String, label: String, main: Any?, alt: Any?) =
         PresetField(model, code, label, FieldScope.SELF, main, alt)
 
+    /** 登记一行「跨账号」设置项（会动到其他账号资源，需显式给出小号取值）。 */
     private fun cross(
         model: String,
         code: String,

@@ -87,6 +87,7 @@ object AccountPreset {
         uid
     }
 
+    /** 展示名 + uid 的形式，用在确认文案里，避免重名账号分不清。 */
     private fun labelOf(uid: String): String = "${displayName(uid)}($uid)"
 
     /**
@@ -265,6 +266,7 @@ object AccountPreset {
         }
     }
 
+    /** 组装应用结果的一行摘要：覆盖项数、批量启用项数、移出排除名单数、跳过项数。 */
     private fun buildMessage(
         tier: PresetTier,
         targetUid: String,
@@ -286,6 +288,7 @@ object AccountPreset {
         return parts.joinToString("；")
     }
 
+    /** 把 [apply] 前抓的内存配置快照写回当前运行账号，避免切换档位后内存与落盘不一致。 */
     private fun restoreSnapshot(snapshot: String) {
         try {
             // 与 Config.load 走同一条反序列化链路：readerForUpdating 会经 setModelFieldsMap
@@ -297,6 +300,7 @@ object AccountPreset {
         }
     }
 
+    /** 广播 [RESTART_ACTION]，让宿主按 [userId] 重载生效后的配置。 */
     private fun broadcastRestart(context: Context?, userId: String) {
         if (context == null) return
         try {
@@ -372,6 +376,7 @@ object AccountPreset {
 
     // ------------------------------------------------------------------ 记录读写
 
+    /** 档位记录文件句柄（`<用户配置目录>/<PRESET_FILE>`）；[userId] 为空或取目录失败时返回 null。 */
     private fun recordFile(userId: String): File? {
         if (userId.isBlank()) return null
         return try {
@@ -382,6 +387,11 @@ object AccountPreset {
         }
     }
 
+    /**
+     * 写入档位记录（档位、应用时间、覆盖项数、两个方向各自的逐好友勾选）。
+     *
+     * 本次写入只覆盖 [tier] 对应方向，另一个方向沿用上次的值，避免来回切换档位时互相抹掉。
+     */
     private fun writeRecord(
         userId: String,
         tier: PresetTier,

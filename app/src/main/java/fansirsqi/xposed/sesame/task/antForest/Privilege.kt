@@ -197,6 +197,7 @@ object Privilege {
         }
     }
 
+    /** 记一次青春特权动作；落盘走 [AntForest] 的森林动作入口，与森林侧核对项合并计数。 */
     private fun recordPrivilege(kind: String, title: String, detail: String, success: Boolean, reason: String?) {
         AntForest.recordForestAction(kind, title, detail, success, reason)
     }

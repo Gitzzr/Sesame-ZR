@@ -45,6 +45,12 @@ import java.util.LinkedHashSet
 object AccountPresetMenu {
     private const val TAG = "AccountPresetMenu"
 
+    /**
+     * 菜单主入口：列出账号，选中后进入档位选择。
+     *
+     * @param userList 调用方已读到的账号列表；为空时回退到 [AccountPreset.otherAccountIds]
+     * @param onApplied 档位应用成功后的回调，用于让调用方刷新界面
+     */
     fun show(context: Context, userList: List<UserEntity>, onApplied: () -> Unit) {
         val accounts = resolveAccounts(userList)
         if (accounts.isEmpty()) {
@@ -60,12 +66,9 @@ object AccountPresetMenu {
             .show()
     }
 
+    /** 菜单里展示的账号：[uid] 用于写配置，[showName] 用于显示。 */
     private data class Account(val uid: String, val showName: String)
 
-    /**
-     * 编辑过程中的状态：两份名单 + 两个方向各自的「逐好友功能勾选」。
-     * 只编辑与当前档位对应的那个方向，另一个方向原样带到确认页。
-     */
     /**
      * 编辑过程中的状态：**只有一份勾选表**（好友 → 要启用的功能 id）。
      *
@@ -88,6 +91,7 @@ object AccountPresetMenu {
         fun activeFriends(): Set<String> = selection.filterValues { it.isNotEmpty() }.keys
     }
 
+    /** 优先用 UI 传入的账号列表；为空时回退读本地账号配置，两者都拿不到就返回空表。 */
     private fun resolveAccounts(userList: List<UserEntity>): List<Account> {
         val fromUi = userList.mapNotNull { user ->
             user.userId?.takeIf { it.isNotBlank() }?.let { Account(it, user.showName.ifBlank { it }) }
@@ -101,6 +105,7 @@ object AccountPresetMenu {
         }
     }
 
+    /** 二级：为该账号选档位（大号 / 小号），确认后进入功能勾选页。 */
     private fun showTierPicker(context: Context, account: Account, onApplied: () -> Unit) {
         val items = arrayOf(
             "【${PresetTier.MAIN.label}推荐配置】 · ${PresetTier.MAIN.summary}",
@@ -118,6 +123,7 @@ object AccountPresetMenu {
 
     // ================================================================== 名单 + 功能配置
 
+    /** 三级：一级列表（该账号下的好友）+ 功能勾选，最终把 `好友 → 功能 id` 的勾选带给确认页。 */
     private fun openEditor(context: Context, account: Account, tier: PresetTier, onApplied: () -> Unit) {
         // 沿用既有命名：isMainList = true 表示"本机是小号、要服务大号"这个方向，
         // 它决定推荐项与"豁免项是否可选"，与"名单"无关。
@@ -240,7 +246,6 @@ object AccountPresetMenu {
         dialog.show()
     }
 
-    /** 一级列表的适配器：每行 = 勾选框 + 名称 + 「N 项」（点击进入功能勾选） */
     /** 一级列表：每行 = 好友名 + 「已配置 N 项」（点击进入功能清单） */
     private class FriendAdapter(
         private val context: Context,
@@ -402,6 +407,7 @@ object AccountPresetMenu {
 
     // ================================================================== 确认
 
+    /** 确认页：展示将要写入的内容，确认后调用 [AccountPreset.apply] 并提示结果。 */
     private fun showConfirm(
         context: Context,
         account: Account,
@@ -435,6 +441,7 @@ object AccountPresetMenu {
             .show()
     }
 
+    /** 生成确认文案：当前档位 + 每个功能会被写入哪些账号（不可选项不计入）。 */
     private fun buildConfirmText(
         account: Account,
         tier: PresetTier,

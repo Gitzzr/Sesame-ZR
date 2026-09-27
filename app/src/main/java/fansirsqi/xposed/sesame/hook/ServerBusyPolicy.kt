@@ -7,8 +7,10 @@ package fansirsqi.xposed.sesame.hook
  * 只有「系统繁忙，请稍后再试」这条文案对应日志里连打的限流。
  */
 object ServerBusyPolicy {
+    /** 服务端限流时固定携带的文案。 */
     const val BUSY_TEXT: String = "系统繁忙，请稍后再试"
 
+    /** [errorMessage] 是否命中限流文案。 */
     @JvmStatic
     fun isBusy(errorMessage: String?): Boolean {
         return errorMessage?.contains(BUSY_TEXT) == true

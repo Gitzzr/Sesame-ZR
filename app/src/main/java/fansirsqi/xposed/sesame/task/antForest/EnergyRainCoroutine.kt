@@ -362,7 +362,6 @@ object EnergyRainCoroutine {
         }
     }
 
-    /** 记一次能量雨结算，失败不影响流程。 */
     /** 从响应里取失败描述，没有时用调用方给的兜底，不编造原因。 */
     private fun failureText(result: JSONObject, fallback: String): String {
         val desc = result.optString("resultDesc").ifBlank { result.optString("memo") }
@@ -370,6 +369,7 @@ object EnergyRainCoroutine {
         return listOf(code, desc).filter { it.isNotBlank() }.joinToString(" ").ifBlank { fallback }
     }
 
+    /** 记一次能量雨结算，失败不影响流程。 */
     private fun recordEnergyRain(grams: Int, success: Boolean, reason: String?) {
         DailyTaskLogRecorder.recordEnergyRain(
             UserMap.currentUid,

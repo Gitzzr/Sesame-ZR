@@ -136,11 +136,13 @@ object Log {
         categoryLogger(category).debug("{}", msg)
     }
 
+    /** 带 tag 的业务日志：等价于 `biz(category, "[tag]: msg")`。 */
     @JvmStatic
     fun biz(category: LogCategory, tag: String, msg: String) {
         biz(category, "[$tag]: $msg")
     }
 
+    /** 分类枚举 → 对应 Logger 实例。 */
     private fun categoryLogger(category: LogCategory): Logger = when (category) {
         LogCategory.FOREST -> FOREST_LOGGER
         LogCategory.OCEAN -> OCEAN_LOGGER
@@ -153,47 +155,59 @@ object Log {
 
     // 分类便捷方法（渐进迁移：旧模块可继续用 forest/farm/other，新模块优先用这些）
 
+    /** 海洋垂钓业务日志（antOcean / antFishPond）。 */
     @JvmStatic
     fun ocean(msg: String) = biz(LogCategory.OCEAN, msg)
 
+    /** 海洋垂钓业务日志，带 tag。 */
     @JvmStatic
     fun ocean(tag: String, msg: String) = biz(LogCategory.OCEAN, tag, msg)
 
+    /** 果园业务日志（antOrchard）。 */
     @JvmStatic
     fun orchard(msg: String) = biz(LogCategory.ORCHARD, msg)
 
+    /** 果园业务日志，带 tag。 */
     @JvmStatic
     fun orchard(tag: String, msg: String) = biz(LogCategory.ORCHARD, tag, msg)
 
+    /** 蚂蚁新村业务日志（antStall / ReadingDada）。 */
     @JvmStatic
     fun stall(msg: String) = biz(LogCategory.STALL, msg)
 
+    /** 蚂蚁新村业务日志，带 tag。 */
     @JvmStatic
     fun stall(tag: String, msg: String) = biz(LogCategory.STALL, tag, msg)
 
+    /** 生活权益业务日志（antMember / antSports / GreenFinance / Credit2101 / AnswerAI）。 */
     @JvmStatic
     fun life(msg: String) = biz(LogCategory.LIFE, msg)
 
+    /** 生活权益业务日志，带 tag。 */
     @JvmStatic
     fun life(tag: String, msg: String) = biz(LogCategory.LIFE, tag, msg)
 
     // --- 运行日志：任务调度 / 轮次统计 / RPC 摘要，使用 INFO/WARN 级别 ---
 
+    /** 运行日志（INFO）：任务调度、轮次统计、RPC 摘要等。 */
     @JvmStatic
     fun runtime(msg: String) {
         RUNTIME_LOGGER.info("{}", msg)
     }
 
+    /** 运行日志，带 tag。 */
     @JvmStatic
     fun runtime(tag: String, msg: String) {
         runtime("[$tag]: $msg")
     }
 
+    /** 运行日志（WARN）：调度层面的异常但不致命的情况。 */
     @JvmStatic
     fun runtimeWarn(msg: String) {
         RUNTIME_LOGGER.warn("{}", msg)
     }
 
+    /** 运行日志（WARN），带 tag。 */
     @JvmStatic
     fun runtimeWarn(tag: String, msg: String) {
         runtimeWarn("[$tag]: $msg")

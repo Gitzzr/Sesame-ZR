@@ -38,9 +38,13 @@ object RequestManager {
     /** 记录触发风控的 RPC 方法所对应入口的后缀，用于提示用户去哪个页面找验证页。 */
     private const val KEY_HINT_SUFFIX = "_hint"
 
+    /** 恢复通知 / 对话框里「已验证，恢复任务」的 PendingIntent 请求码。 */
     private const val REQUEST_CODE_RESUME = 109
+
+    /** 恢复通知 / 对话框里「跳过并恢复」的 PendingIntent 请求码。 */
     private const val REQUEST_CODE_SKIP = 110
 
+    /** 暂停提示统一使用的标题文案。 */
     private const val TITLE_VERIFICATION_PAUSE = "自动任务已暂停"
 
     private val recoveryPolicy = RpcRecoveryPolicy()
@@ -60,6 +64,11 @@ object RequestManager {
         return "在$scene 触发风控。请打开支付宝进入$scene 完成验证；若没有验证页，点「跳过并恢复」"
     }
 
+    /**
+     * 对话框正文：与通知同义，但可以写得更细（场景 + 两种操作各自的含义）。
+     *
+     * @param hint 触发风控的 RPC 方法对应的应用入口；为 null 时不写「触发场景」一行
+     */
     private fun dialogText(hint: String?): String {
         val sceneLine = if (hint == null) "" else "触发场景：「$hint」\n\n"
         return "检测到支付宝风控拦截，自动任务已暂停。\n\n" +
@@ -69,9 +78,11 @@ object RequestManager {
             "· 若该页面没有任何验证入口：点「跳过并恢复」即可继续自动任务"
     }
 
+    /** 当前是否因安全验证而处于暂停态。 */
     @JvmStatic
     fun isVerificationPaused(): Boolean = recoveryPolicy.blockReason == RpcBlockReason.VERIFICATION
 
+    /** RPC 返回空串或纯空白时视为「无有效响应」，调用方据此走失败分支。 */
     @JvmStatic
     fun isEmptyRpcResponse(result: String?): Boolean {
         return result.isNullOrBlank()
@@ -98,6 +109,16 @@ object RequestManager {
         return false
     }
 
+    /**
+     * 检测到安全验证后的统一入口：置离线、登记暂停标志、停任务并弹通知。
+     *
+     * 只有 [RpcRecoveryPolicy] 判定应当「等人工验证」时才真正暂停；
+     * 更早的风控（例如计数已熔断）直接返回，避免重复登记。
+     *
+     * @param method 触发风控的 RPC 方法名，用于推断用户应打开的入口
+     * @param errorCode 服务端返回的错误码，仅用于日志
+     * @param errorMessage 服务端返回的错误描述，仅用于日志
+     */
     @JvmStatic
     fun handleVerificationRequired(method: String?, errorCode: String?, errorMessage: String?) {
         Log.record(TAG, "触发安全验证 | method=$method | code=$errorCode | msg=$errorMessage")
@@ -113,6 +134,12 @@ object RequestManager {
         notifyVerificationPause()
     }
 
+    /**
+     * 登记暂停标志，一次写入三个键：
+     * - `<uid>`：一次性恢复令牌（随机 UUID，恢复入口必须出示）
+     * - `<uid>[_at]`：写入时间戳，供 TTL 超时自愈判定
+     * - `<uid>[_hint]`：触发风控的应用入口提示，供通知 / 对话框告知用户去哪验证
+     */
     private fun markVerification(uid: String, hint: String?) {
         verificationPrefs()?.edit()
             ?.putString(uid, UUID.randomUUID().toString())
@@ -121,6 +148,7 @@ object RequestManager {
             ?.commit()
     }
 
+    /** 清除暂停标志，三个键一起删，避免残留时间戳 / 入口提示影响下次判定。 */
     private fun clearVerification(uid: String) {
         verificationPrefs()?.edit()
             ?.remove(uid)
@@ -129,9 +157,11 @@ object RequestManager {
             ?.commit()
     }
 
+    /** 读取触发风控的入口提示；没有或为空时返回 null（调用方按「未知入口」措辞兜底）。 */
     private fun readHint(uid: String): String? =
         verificationPrefs()?.getString(uid + KEY_HINT_SUFFIX, null)?.takeIf { it.isNotEmpty() }
 
+    /** 构造「已验证，恢复任务」广播；令牌不存在时返回 null（说明当前并无暂停标志）。 */
     private fun resumeIntent(context: Context, uid: String): Intent? {
         val token = verificationPrefs()?.getString(uid, null) ?: return null
         return Intent(ApplicationHook.BroadcastActions.RESUME_VERIFIED)
@@ -140,6 +170,12 @@ object RequestManager {
             .putExtra(ApplicationHook.BroadcastActions.EXTRA_VERIFICATION_TOKEN, token)
     }
 
+    /**
+     * 构造「跳过并恢复」广播。
+     *
+     * 与 [resumeIntent] 不同：即使令牌不存在也返回 Intent（此时带空串令牌），
+     * 让「没有暂停标志」的边界场景仍能走到恢复流程并给出明确日志。
+     */
     private fun skipIntent(context: Context, uid: String): Intent? {
         val token = verificationPrefs()?.getString(uid, null)
         return Intent(ApplicationHook.BroadcastActions.SKIP_VERIFICATION)
@@ -148,6 +184,7 @@ object RequestManager {
             .putExtra(ApplicationHook.BroadcastActions.EXTRA_VERIFICATION_TOKEN, token.orEmpty())
     }
 
+    /** 发送「自动任务已暂停」通知，附带「已验证，恢复任务」与「跳过并恢复」两个动作。 */
     private fun notifyVerificationPause() {
         val context = ApplicationHook.appContext ?: return
         val uid = UserMap.currentUid ?: return
@@ -173,6 +210,12 @@ object RequestManager {
         )
     }
 
+    /**
+     * 在界面上弹「自动任务已暂停」对话框（通知之外的第二个恢复入口）。
+     *
+     * 由 Activity 生命周期回调触发，因此这里做了三重防护：未暂停 / 已弹过 /
+     * Activity 正在结束都不再弹，避免重复对话框或在销毁中的 Activity 上弹窗。
+     */
     fun showVerificationResumeDialog(activity: Activity) {
         if (!isVerificationPaused() || resumeDialogVisible || activity.isFinishing || activity.isDestroyed) return
         val uid = UserMap.currentUid ?: return
@@ -245,6 +288,7 @@ object RequestManager {
         }
 
         Log.record(TAG, "收到恢复指令（跳过验证=${!requireToken}，令牌匹配=$tokenMatched），等待已暂停任务退出")
+        // 先等待旧业务退出，避免解除暂停时旧请求继续发出。
         kotlinx.coroutines.runBlocking { ModelTask.stopAllTaskAndJoin() }
         if (UserMap.currentUid != uid) return false
 

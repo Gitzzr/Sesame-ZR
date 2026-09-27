@@ -257,6 +257,7 @@ private data class EcoTaskView(
     val lastAt: Long
 )
 
+/** 读取本地记录并整理成界面用的快照；任何读取失败都退化为「今天无记录」。 */
 private fun loadSnapshot(): CheckSnapshot {
     val log = runCatching { DailyTaskLogRecorder.readToday(UserMap.currentUid) }.getOrNull()
         ?: DailyTaskLog(day = DailyTaskLogRecorder.dayKey(System.currentTimeMillis()))
@@ -333,8 +334,7 @@ private fun readEnabledSwitches(): Map<String, Boolean> {
     return switches
 }
 
-/** 按模块分组展示；调用前已把失败记录排在前面。 */
-
+/** 顶部汇总卡：四类记录各自的成功 / 失败条数，全为 0 时给出空态提示。 */
 @Composable
 private fun SummaryCard(snapshot: CheckSnapshot) {
     SectionCard(title = "今日汇总", tone = SectionTone.NORMAL) {
@@ -350,6 +350,7 @@ private fun SummaryCard(snapshot: CheckSnapshot) {
     }
 }
 
+/** 汇总卡里的一行：左侧名称，右侧成功/失败条数；有失败时用错误色强调。 */
 @Composable
 private fun SummaryLine(label: String, success: Int, fail: Int) {
     Row(
@@ -366,6 +367,7 @@ private fun SummaryLine(label: String, success: Int, fail: Int) {
     }
 }
 
+/** 「需要关注」列表的一行：开了开关却没记录 → 「今日无记录」，否则显示失败次数与最近原因。 */
 @Composable
 private fun StatusRow(status: ExpectedTaskStatus) {
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
@@ -390,6 +392,7 @@ private fun StatusRow(status: ExpectedTaskStatus) {
     }
 }
 
+/** 能量雨明细的一行：成功显示克数，失败显示原因。 */
 @Composable
 private fun EnergyRainRow(entry: EnergyRainEntry) {
     RecordRow(
@@ -400,6 +403,7 @@ private fun EnergyRainRow(entry: EnergyRainEntry) {
     )
 }
 
+/** 赠送聚合行「类型 → 接收方 + 成功/失败次数」；一次都没成功过时按失败色显示。 */
 @Composable
 private fun GiftTallyRow(tally: GiftTally) {
     val who = tally.targetName.ifEmpty { tally.targetUserId.ifEmpty { "未知接收方" } }
@@ -414,6 +418,7 @@ private fun GiftTallyRow(tally: GiftTally) {
     )
 }
 
+/** 赠送失败明细的一行，固定按失败色显示并带上原因。 */
 @Composable
 private fun GiftFailureRow(entry: GiftEntry) {
     val who = entry.targetName.ifEmpty { entry.targetUserId.ifEmpty { "未知接收方" } }
@@ -425,6 +430,12 @@ private fun GiftFailureRow(entry: GiftEntry) {
     )
 }
 
+/**
+ * 按模块分组展示；调用前已把失败记录排在前面。
+ *
+ * @param moduleOf 取条目所属模块（用于分组）
+ * @param row 单条记录的渲染方式
+ */
 @Composable
 private fun <T> ModuleGroups(
     entries: List<T>,
@@ -445,6 +456,7 @@ private fun <T> ModuleGroups(
     }
 }
 
+/** 动作明细的一行：标题 + 数量描述，失败时用错误色并带原因。 */
 @Composable
 private fun ActionRow(entry: ActionEntry) {
     val amount = entry.detail.takeIf { it.isNotBlank() }?.let { "　$it" } ?: ""
@@ -456,6 +468,7 @@ private fun ActionRow(entry: ActionEntry) {
     )
 }
 
+/** 奖励明细的一行：标题 + 数量描述，失败时用错误色并带原因。 */
 @Composable
 private fun RewardRow(entry: RewardEntry) {
     val amount = entry.detail.takeIf { it.isNotBlank() }?.let { "　$it" } ?: ""
@@ -467,6 +480,12 @@ private fun RewardRow(entry: RewardEntry) {
     )
 }
 
+/**
+ * 明细行的公共版式：标题（失败时红色）+ 右对齐的时间，第二行放原因。
+ *
+ * @param trailing 右侧的次要信息，通常是时间
+ * @param detail 需要展开说明的细节（失败原因、奖励数量等），为空时不占行
+ */
 @Composable
 private fun RecordRow(title: String, trailing: String, failed: Boolean, detail: String?) {
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
@@ -631,7 +650,11 @@ private fun openUrl(context: Context, url: String) {
     }
 }
 
-private enum class SectionTone { NORMAL, ALERT }@Composable
+/** 卡片语气：普通卡片，或需要用错误色强调的「需要关注」卡片。 */
+private enum class SectionTone { NORMAL, ALERT }
+
+/** 分组卡片容器：标题 + 内容，[tone] 决定底色。 */
+@Composable
 private fun SectionCard(title: String, tone: SectionTone, content: @Composable () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -653,6 +676,7 @@ private fun SectionCard(title: String, tone: SectionTone, content: @Composable (
     }
 }
 
+/** 空态提示文字。 */
 @Composable
 private fun EmptyHint(text: String) {
     Text(
@@ -662,12 +686,14 @@ private fun EmptyHint(text: String) {
     )
 }
 
+/** 明细分组的展示顺序：森林 → 庄园 → 海洋。 */
 private val MODULE_ORDER = listOf(
     DailyTaskLogPolicy.MODULE_FOREST,
     DailyTaskLogPolicy.MODULE_FARM,
     DailyTaskLogPolicy.MODULE_OCEAN
 )
 
+/** 模块 code → 展示名；未登记的模块原样显示。 */
 private fun moduleLabel(module: String): String = when (module) {
     DailyTaskLogPolicy.MODULE_FOREST -> "森林"
     DailyTaskLogPolicy.MODULE_FARM -> "庄园"
@@ -675,6 +701,7 @@ private fun moduleLabel(module: String): String = when (module) {
     else -> module
 }
 
+/** 赠送类型 code → 展示名；未知类型回退到「赠送」。 */
 private fun giftKindLabel(kind: String): String = when (kind) {
     DailyTaskLogPolicy.GIFT_WATER -> "浇水"
     DailyTaskLogPolicy.GIFT_RAIN_CHANCE -> "能量雨机会"
@@ -682,8 +709,10 @@ private fun giftKindLabel(kind: String): String = when (kind) {
     else -> kind.ifEmpty { "赠送" }
 }
 
+/** 时间格式固定按 GMT+8 展示，避免设备时区不同导致与「今天」的口径错位。 */
 private val timeFormat: SimpleDateFormat =
     SimpleDateFormat("HH:mm", Locale.CHINA).apply { timeZone = TimeZone.getTimeZone("GMT+8") }
 
+/** 时间戳 → HH:mm；无效时间戳（<=0）或格式化失败时返回空串。 */
 private fun formatTime(at: Long): String =
     if (at <= 0) "" else runCatching { timeFormat.format(Date(at)) }.getOrDefault("")
