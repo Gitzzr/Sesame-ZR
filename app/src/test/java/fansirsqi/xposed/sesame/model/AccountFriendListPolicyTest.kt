@@ -258,4 +258,16 @@ class AccountFriendListPolicyTest {
         }
         assertEquals(null, AccountFriendListPolicy.byId("NotExist.field"))
     }
+
+    @Test
+    fun `选择计数型名单的默认次数取支付宝每日上限`() {
+        // 依据：docs/interaction-limits.md（每项都标了来源与置信度）。
+        // 这几个数字同时被任务侧钳制，改动前请先复核上限是否变了。
+        fun countOf(fieldCode: String): Int? =
+            AccountFriendListPolicy.FRIEND_LISTS.first { it.fieldCode == fieldCode }.countDefault
+
+        assertEquals("浇水上限 3 次/天", 3, countOf("waterFriendList"))
+        assertEquals("帮喂小鸡上限 5 次/天", 5, countOf("feedFriendAnimalList"))
+        assertEquals("送麦子上限 3 次/天", 3, countOf("visitFriendList"))
+    }
 }

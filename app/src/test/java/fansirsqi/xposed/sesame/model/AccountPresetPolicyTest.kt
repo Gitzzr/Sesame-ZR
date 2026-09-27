@@ -281,4 +281,25 @@ class AccountPresetPolicyTest {
         assertFalse(AccountPresetPolicy.isNeutralValue(setOf("uid")))
         assertFalse(AccountPresetPolicy.isNeutralValue(AccountPresetPolicy.KEEP))
     }
+
+    @Test
+    fun `小号档开启绿色任务并把两个选项都选上`() {
+        fun altValueOf(model: String, field: String): Any? =
+            AccountPresetPolicy.FIELDS.first { it.modelCode == model && it.fieldCode == field }.altValue
+        fun mainValueOf(model: String, field: String): Any? =
+            AccountPresetPolicy.FIELDS.first { it.modelCode == model && it.fieldCode == field }.mainValue
+
+        // 小号：绿色行动开着、允许自动开通、两个选项都要
+        assertEquals(true as Any?, altValueOf("AntForest", "ecoLife"))
+        assertEquals(true as Any?, altValueOf("AntForest", "ecoLifeOpen"))
+        assertEquals(
+            "绿色行动选项必须同时含 tick（绿色行动）与 plate（光盘行动）",
+            linkedSetOf("tick", "plate"),
+            altValueOf("AntForest", "ecoLifeOption"),
+        )
+
+        // 大号档不动用户自己的选择：选项仍是 KEEP、自动开通仍是关
+        assertEquals(AccountPresetPolicy.KEEP, mainValueOf("AntForest", "ecoLifeOption"))
+        assertEquals(false as Any?, mainValueOf("AntForest", "ecoLifeOpen"))
+    }
 }

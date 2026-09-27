@@ -79,6 +79,15 @@ object AccountPresetPolicy {
     private val EMPTY_SET: Set<String> = emptySet()
     private val EMPTY_MAP: Map<String, Int> = emptyMap()
 
+    /**
+     * 绿色行动的两个选项都要。
+     *
+     * 取值即 `OtherEntityProvider.listEcoLifeOptions()` 的 id：
+     * `tick` = 绿色行动（每日打卡）、`plate` = 光盘行动（提交餐前餐后照片）。
+     * 两个选项互不替代，只勾一个会漏掉另一半收益。
+     */
+    private val GREEN_ACTION_OPTIONS: Set<String> = linkedSetOf("tick", "plate")
+
     // ------------------------------------------------------------------ 模型代码
     private const val BASE = "BaseModel"
     private const val FOREST = "AntForest"
@@ -244,8 +253,11 @@ object AccountPresetPolicy {
                 self(FOREST, "studentCheckIn", "青春特权 | 签到红包", ON, ON),
                 self(FOREST, "ecoLife", "绿色行动", ON, ON),
                 self(FOREST, "ecoLifeTime", "绿色行动执行时间", KEEP, KEEP),
-                self(FOREST, "ecoLifeOpen", "绿色任务 | 自动开通", OFF, OFF),
-                self(FOREST, "ecoLifeOption", "绿色行动选项", KEEP, KEEP),
+                // 小号要真的跑起来就得能自动开通：未开通时源码会先看这个开关再决定是否调用开通接口
+                // （见 EcoLife.ecoLife()），关着的话绿色打卡永远走不到。
+                self(FOREST, "ecoLifeOpen", "绿色任务 | 自动开通", OFF, ON),
+                // 只改小号档：大号保持 KEEP，不动用户自己的选择
+                self(FOREST, "ecoLifeOption", "绿色行动选项", KEEP, GREEN_ACTION_OPTIONS),
                 self(FOREST, "queryInterval", "查询间隔", KEEP, KEEP),
                 self(FOREST, "collectInterval", "收取间隔", KEEP, KEEP),
                 self(FOREST, "doubleCollectInterval", "双击间隔", KEEP, KEEP),

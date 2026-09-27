@@ -50,6 +50,9 @@ data class GateSwitch(
  * @param gateSwitches 勾选该功能时要一并写入的开关（含动作选择器）
  * @param countDefault 「选择 + 计数」型名单的默认**每日次数**（null = 普通集合型）。
  *                     计数 ≤0 会被任务直接跳过，所以必须给正数。
+ *                     取值按支付宝当前公布的每日上限给满，依据见 `docs/interaction-limits.md`：
+ *                     浇水 3 次 / 帮喂 5 次 / 送麦子 3 次 —— 任务侧也有同样的钳制
+ *                     （`AntForest.waterFriends` 的 `min(waterCount, 3)`、`AntFarm.visitFriend` 的 `min(count, 3)`）。
  * @param effective    当前实现下是否真的生效。`false` 的项不进入推荐集，UI 会标注说明。
  */
 data class FriendListRef(
@@ -96,7 +99,7 @@ object AccountFriendListPolicy {
         // ============================================================ 服务 TA（11）
         FriendListRef(
             FOREST, "waterFriendList", "浇水 | 好友列表", FriendListKind.SERVICE,
-            "给 TA 浇水", countDefault = 1,
+            "给 TA 浇水", countDefault = 3,
         ),
         FriendListRef(
             FOREST, "giveEnergyRainList", "赠送能量雨 | 配置列表", FriendListKind.SERVICE,
@@ -114,7 +117,7 @@ object AccountFriendListPolicy {
         ),
         FriendListRef(
             FARM, "feedFriendAnimalList", "帮喂小鸡 | 好友列表", FriendListKind.SERVICE,
-            "帮 TA 喂小鸡", countDefault = 1,
+            "帮 TA 喂小鸡", countDefault = 5,
         ),
         FriendListRef(
             FARM, "getFeedlList", "一起拿饲料 | 好友列表", FriendListKind.SERVICE,
@@ -128,7 +131,7 @@ object AccountFriendListPolicy {
             FARM, "visitFriendList", "送麦子好友列表", FriendListKind.SERVICE,
             "送 TA 麦子", gateField = "visitAnimal",
             gateSwitches = listOf(gate(FARM, "visitAnimal", "到访小鸡送礼", true)),
-            countDefault = 1,
+            countDefault = 3,
         ),
         FriendListRef(
             DODO, "collectToFriendList", "帮抽卡 | 好友列表", FriendListKind.SERVICE,
