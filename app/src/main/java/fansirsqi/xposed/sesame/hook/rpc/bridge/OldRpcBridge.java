@@ -12,6 +12,7 @@ import fansirsqi.xposed.sesame.data.RuntimeInfo;
 import fansirsqi.xposed.sesame.entity.RpcEntity;
 import fansirsqi.xposed.sesame.hook.ApplicationHook;
 import fansirsqi.xposed.sesame.hook.RequestManager;
+import fansirsqi.xposed.sesame.hook.ServerBusyPolicy;
 import fansirsqi.xposed.sesame.hook.rpc.intervallimit.RpcIntervalLimit;
 import fansirsqi.xposed.sesame.model.BaseModel;
 import fansirsqi.xposed.sesame.util.Log;
@@ -95,11 +96,17 @@ public class OldRpcBridge implements RpcBridge {
         String method = rpcEntity.getRequestMethod(); // 获取请求方法
         String args = rpcEntity.getRequestData(); // 获取请求参数
         for (int count = 0; count < tryCount; count++) {
-            if (ApplicationHook.offline) return null;
+            if (ApplicationHook.offline) {
+                rpcEntity.setResponseObject(null, RequestManager.VERIFICATION_REQUIRED_RESPONSE);
+                return rpcEntity;
+            }
             try {
                 if (!fansirsqi.xposed.sesame.hook.RpcDispatchGate.awaitPermission(
                         () -> ApplicationHook.offline,
-                        () -> RpcIntervalLimit.INSTANCE.enterIntervalLimit(Objects.requireNonNull(method)))) return null;
+                        () -> RpcIntervalLimit.INSTANCE.enterIntervalLimit(Objects.requireNonNull(method)))) {
+                    rpcEntity.setResponseObject(null, RequestManager.VERIFICATION_REQUIRED_RESPONSE);
+                    return rpcEntity;
+                }
                 Object response = invokeRpcCall(method, args); // 调用 RPC 方法
                 return processResponse(rpcEntity, response, id, method, args, retryInterval); // 处理响应
             } catch (Throwable t) {
@@ -140,11 +147,12 @@ public class OldRpcBridge implements RpcBridge {
         JSONObject resultObject = new JSONObject(resultStr);
         rpcEntity.setResponseObject(resultObject, resultStr); // 设置响应对象
         // 检查响应中的 "memo" 字段是否包含 "系统繁忙"
-        if (resultObject.optString("memo", "").contains("系统繁忙")) {
-            ApplicationHook.setOffline(true); // 设置为离线状态
-            Notify.updateStatusText("系统繁忙，可能需要滑动验证");
-            Log.record(TAG,"系统繁忙，可能需要滑动验证");
-            return null; // 返回 null
+        if (ServerBusyPolicy.isBusy(resultObject.optString("memo", ""))
+                || ServerBusyPolicy.isBusy(resultObject.optString("errorMessage", ""))
+                || ServerBusyPolicy.isBusy(resultObject.optString("resultDesc", ""))) {
+            Log.record(TAG, "系统繁忙，本轮不再重试 | 方法: " + method);
+            rpcEntity.acceptResponse();
+            return rpcEntity;
         }
         // 部分接口用 resultCode/resultDesc 承载风控信息（如 queryPropList），与 error/errorMessage 一起判读
         String errorCode = resultObject.optString("error", resultObject.optString("resultCode", ""));

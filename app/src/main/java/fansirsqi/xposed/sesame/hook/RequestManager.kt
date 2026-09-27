@@ -260,8 +260,8 @@ object RequestManager {
      * 流程：离线检查 -> 获取 Bridge -> 执行请求 -> 结果校验 -> 错误计数/重置
      */
     private inline fun executeRpc(methodLog: String?, block: (RpcBridge) -> String?): String {
-        // 1. 【前置检查】如果已经离线，直接中断并尝试恢复
-        if (ApplicationHook.offline) {
+        // 1. 【前置检查】如果已经离线，先看暂停是否已超时；超时就地解除，否则中断并尝试恢复
+        if (ApplicationHook.offline && !releaseExpiredVerificationPause()) {
             recoveryPolicy.handleExternalOffline(::handleOfflineRecovery)
             return blockedResponse()
         }
@@ -385,6 +385,36 @@ object RequestManager {
         ApplicationHook.reOpenApp()
         // 策略 B: 发送重登录广播 (如果宿主还能响应广播)
         // ApplicationHook.reLoginByBroadcast()
+    }
+
+    /**
+     * 暂停超过保留期时就地解除，不必等支付宝重启。
+     *
+     * 过期判定原先只挂在 [onRpcBridgeReady]（进程启动 / Bridge 就绪）上，运行期间一律算有效。
+     * 实测 2026-09-27：06:36:51 因 `com.alipay.antfarm.useFarmFood` 触发风控而暂停，
+     * 通知发出时用户已睡下，模块一直挂到 15:32:21 支付宝重启才自动解除 ——
+     * 中间近 9 小时所有请求都被离线门控拦下，蹲点任务还被算成「已达最大重试次数」而删除。
+     * 把判定前移到每次离线门控，TTL 到期后就能自行恢复。
+     *
+     * @return 是否刚刚解除了一个已超时的暂停
+     */
+    @Synchronized
+    private fun releaseExpiredVerificationPause(): Boolean {
+        if (!isVerificationPaused()) return false
+        val uid = UserMap.currentUid ?: return false
+        val prefs = verificationPrefs() ?: return false
+        val shouldRelease = VerificationPausePolicy.shouldReleaseExpiredPause(
+            hasMark = prefs.contains(uid),
+            markedAt = prefs.getLong(uid + KEY_MARKED_AT_SUFFIX, 0L),
+            now = System.currentTimeMillis()
+        )
+        if (!shouldRelease) return false
+
+        clearVerification(uid)
+        recoveryPolicy.reset()
+        ApplicationHook.setOffline(false)
+        Log.record(TAG, "安全验证暂停已超过 30 分钟，自动解除并恢复自动任务")
+        return true
     }
 
     /**

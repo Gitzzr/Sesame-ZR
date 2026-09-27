@@ -1,6 +1,7 @@
 package fansirsqi.xposed.sesame.task.antForest
 
 import android.annotation.SuppressLint
+import fansirsqi.xposed.sesame.hook.ApplicationHook
 import fansirsqi.xposed.sesame.util.Log
 import fansirsqi.xposed.sesame.util.TimeUtil
 import kotlinx.coroutines.CancellationException
@@ -631,7 +632,22 @@ object EnergyWaitingManager {
                             TAG,
                             "蹲点收取[${task.getUserTypeTag()}${task.userName}]$resultType：${result.message}"
                         )
-                        if (task.retryCount < task.maxRetries) {
+                        if (ApplicationHook.offline) {
+                            // 暂停态下所有请求都被本地门控拦下，重试只会空烧次数。
+                            // 实测 2026-09-27：07:00–07:30 的蹲点全部走完 4 次重试后被判
+                            // 「已达最大重试次数」而删除，暂停解除后也不再收取。
+                            // 这里保留原 retryCount 顺延，等离线解除后再试。
+                            Log.record(
+                                TAG,
+                                "蹲点收取[${task.getUserTypeTag()}${task.userName}]遇本地暂停，顺延 60 秒后再试（不消耗重试次数）"
+                            )
+                            managerScope.launch {
+                                delay(60_000L)
+                                if (waitingTasks.containsKey(task.taskId)) {
+                                    startPreciseWaitingCoroutine(task)
+                                }
+                            }
+                        } else if (task.retryCount < task.maxRetries) {
                             val retryTask = task.withRetry()
                             waitingTasks[task.taskId] = retryTask
                             val retryDelay = if (result.message.contains("频繁")) 10000L else 5000L

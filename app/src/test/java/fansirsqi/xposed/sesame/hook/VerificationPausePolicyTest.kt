@@ -150,6 +150,37 @@ class VerificationPausePolicyTest {
         )
     }
 
+    @Test
+    fun `运行期间暂停超过保留期就地解除`() {
+        val now = System.currentTimeMillis()
+
+        // 标志新鲜：继续拦
+        assertFalse(
+            VerificationPausePolicy.shouldReleaseExpiredPause(
+                hasMark = true,
+                markedAt = now - 60_000L,
+                now = now
+            )
+        )
+        // 标志超过 30 分钟：放行
+        // 2026-09-27 06:36:51 → 15:32:21 的约 9 小时停摆正是漏了这一步。
+        assertTrue(
+            VerificationPausePolicy.shouldReleaseExpiredPause(
+                hasMark = true,
+                markedAt = now - VerificationPausePolicy.VERIFICATION_TTL_MS - 1,
+                now = now
+            )
+        )
+        // 暂停态存在但标志没写成功（无时间戳）：也必须能自愈，否则永久卡死
+        assertTrue(
+            VerificationPausePolicy.shouldReleaseExpiredPause(
+                hasMark = false,
+                markedAt = 0L,
+                now = now
+            )
+        )
+    }
+
     // ---------- 两套字段（error/errorMessage 与 resultCode/resultDesc） ----------
 
     @Test
