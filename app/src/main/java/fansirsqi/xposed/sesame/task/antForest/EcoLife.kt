@@ -234,6 +234,14 @@ object EcoLife {
                 }
             }
             if ("SUCCESS" == JsonUtil.getValueByPath(jo, "data.status")) {
+                // 服务端认为今天的光盘行动已经完成。最常见的原因是用户自己在支付宝打了卡：
+                // 模块只负责补交，看到已完成就不再重复提交。
+                // 但这正是用户想确认的事 —— 不记一笔的话，今日完成页会显示「光盘行动 今日无记录」，
+                // 反而看不出今天到底完成没有。用当天标志保证只记一次。
+                if (!Status.hasFlagToday("EcoLife::plateAlreadyDone")) {
+                    recordEcoAction(TITLE_PLATE, "已完成（无需重复提交）", true, null)
+                    Status.setFlagToday("EcoLife::plateAlreadyDone")
+                }
                 return
             }
             if (allPhotos.isEmpty()) {
