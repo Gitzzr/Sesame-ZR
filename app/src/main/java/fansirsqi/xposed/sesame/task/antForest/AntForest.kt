@@ -3792,55 +3792,57 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             do {
                 // 查询道具列表
                 val propListJo = JSONObject(AntForestRpcCall.queryPropList(true))
-                if (ResChecker.checkRes(TAG + "查询道具列表失败:", propListJo)) {
-                    val forestPropVOList = propListJo.optJSONArray("forestPropVOList")
-                    if (forestPropVOList != null && forestPropVOList.length() > 0) {
-                        val propJo = forestPropVOList.getJSONObject(0)
-                        val giveConfigId =
-                            propJo.getJSONObject("giveConfigVO").getString("giveConfigId")
-                        val holdsNum = propJo.optInt("holdsNum", 0)
-                        val propName = propJo.getJSONObject("propConfigVO").getString("propName")
-                        val propId = propJo.getJSONArray("propIdList").getString(0)
-                        val giveResultJo = JSONObject(
-                            AntForestRpcCall.giveProp(
-                                giveConfigId,
-                                propId,
-                                targetUserId
-                            )
+                val queryOk = ResChecker.checkRes(TAG + "查询道具列表失败:", propListJo)
+                val propList = if (queryOk) propListJo.optJSONArray("forestPropVOList") else null
+                var holdsNum = 0
+                if (propList != null && propList.length() > 0) {
+                    val propJo = propList.getJSONObject(0)
+                    val giveConfigId =
+                        propJo.getJSONObject("giveConfigVO").getString("giveConfigId")
+                    holdsNum = propJo.optInt("holdsNum", 0)
+                    val propName = propJo.getJSONObject("propConfigVO").getString("propName")
+                    val propId = propJo.getJSONArray("propIdList").getString(0)
+                    val giveResultJo = JSONObject(
+                        AntForestRpcCall.giveProp(
+                            giveConfigId,
+                            propId,
+                            targetUserId
                         )
-                        if (ResChecker.checkRes(TAG + "赠送道具失败:", giveResultJo)) {
-                            Log.forest("赠送道具🎭[" + UserMap.getMaskName(targetUserId) + "]#" + propName)
-                            recordPropGift(targetUserId, propName, true, null)
-                            GlobalThreadPools.sleepCompat(1500)
-                        } else {
-                            val rt = giveResultJo.getString("resultDesc")
-                            Log.record(rt)
-                            Log.record(giveResultJo.toString())
-                            recordPropGift(targetUserId, propName, false, rt)
-                            // 记下来，今天剩下的轮次不再重复这一请求
-                            if (DayBlockedPolicy.isDayBlocked(
-                                    giveResultJo.optString("resultCode"),
-                                    rt
-                                )
-                            ) {
-                                Status.setFlagToday(FLAG_GIVE_PROP_BLOCKED)
-                            }
-                            if (rt.contains("异常")) {
-                                return
-                            }
+                    )
+                    if (ResChecker.checkRes(TAG + "赠送道具失败:", giveResultJo)) {
+                        Log.forest("赠送道具🎭[" + UserMap.getMaskName(targetUserId) + "]#" + propName)
+                        recordPropGift(targetUserId, propName, true, null)
+                        GlobalThreadPools.sleepCompat(1500)
+                    } else {
+                        val rt = giveResultJo.getString("resultDesc")
+                        Log.record(rt)
+                        Log.record(giveResultJo.toString())
+                        recordPropGift(targetUserId, propName, false, rt)
+                        // 记下来，今天剩下的轮次不再重复这一请求
+                        if (DayBlockedPolicy.isDayBlocked(
+                                giveResultJo.optString("resultCode"),
+                                rt
+                            )
+                        ) {
+                            Status.setFlagToday(FLAG_GIVE_PROP_BLOCKED)
                         }
-                        // 如果持有数量大于1或道具列表中有多于一个道具，则继续赠送
-                        if (holdsNum <= 1 && forestPropVOList.length() == 1) {
-                            break
+                        if (rt.contains("异常")) {
+                            return
                         }
                     }
+                } else if (queryOk) {
+                    Log.record(TAG, "没有可赠送的道具，结束本轮赠送")
                 } else {
-                    // 如果查询道具列表失败，则记录失败的日志
+                    // 查询失败没有继续的依据：下一轮还是同一个结果，只会把请求量放大
                     val desc = propListJo.optString("resultDesc").ifBlank { "查询道具失败" }
                     Log.record(TAG, "赠送道具查询结果$desc")
                     recordPropGift(targetUserId, "", false, desc)
                 }
-                // 等待1.5秒后再继续
+                // 查询失败 / 无道具 / 只剩一个且持有不足 —— 都必须跳出，
+                // 否则 do/while(true) 会死循环（2026-09-28 实测每分钟 1300+ 次重查）
+                if (!PropGiftLoopPolicy.shouldContinue(queryOk, propList?.length() ?: 0, holdsNum)) {
+                    break
+                }
             } while (true)
         } catch (th: Throwable) {
             // 打印异常信息
