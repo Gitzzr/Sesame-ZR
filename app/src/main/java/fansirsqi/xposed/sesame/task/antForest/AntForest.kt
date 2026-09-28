@@ -3496,7 +3496,8 @@ class AntForest : ModelTask(), EnergyCollectCallback {
 
             val needBubbleBoostCard = bubbleBoostCard!!.value != ApplyPropType.CLOSE
 
-            Log.record(
+            // 每轮例行输出，只在调试日志里留痕（record.log 当天被这类行刷掉几百条）
+            Log.debug(
                 TAG, "道具使用检查: needDouble=" + needDouble + ", needrobExpand=" + needrobExpand +
                         ", needStealth=" + needStealth + ", needShield=" + needShield +
                         ", needEnergyBombCard=" + needEnergyBombCard + ", needBubbleBoostCard=" + needBubbleBoostCard
@@ -3628,9 +3629,9 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                 )
             )
         } else {
-            Log.record(
+            Log.debug(
                 TAG, String.format(
-                    "[保护罩] ✅ 无需续写 - 剩余时间[%s] > 续写阈值[%s]",
+                    "[保护罩] 无需续写 - 剩余时间[%s] > 续写阈值[%s]",
                     remainTimeStr, thresholdTimeStr
                 )
             )
@@ -3688,9 +3689,9 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                 )
             )
         } else {
-            Log.record(
+            Log.debug(
                 TAG, String.format(
-                    "[炸弹卡] ✅ 无需续写 - 剩余时间[%s] > 续写阈值[%s]",
+                    "[炸弹卡] 无需续写 - 剩余时间[%s] > 续写阈值[%s]",
                     remainTimeStr, thresholdTimeStr
                 )
             )
@@ -3744,9 +3745,9 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                 )
             )
         } else {
-            Log.record(
+            Log.debug(
                 TAG, String.format(
-                    "[双击卡] ✅ 无需续写 - 剩余时间[%s] > 续写阈值[%s]",
+                    "[双击卡] 无需续写 - 剩余时间[%s] > 续写阈值[%s]",
                     remainTimeStr, thresholdTimeStr
                 )
             )

@@ -49,7 +49,8 @@ public class TaskCommon {
             return false;
         }
 
-        Log.record("获取 " + label + " 配置: " + timeConfig);
+        // 每次 TaskCommon.update() 都会走这里，当天实测两行各刷 400+ 次；配置值本身很少变。
+        Log.debug("获取 " + label + " 配置: " + timeConfig);
         return TimeUtil.checkInTimeRange(currentTime, timeConfig);
     }
 

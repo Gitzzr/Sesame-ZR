@@ -259,7 +259,7 @@ object EnergyWaitingManager {
                 if (existingTask != null) {
                     // 如果已存在且时间相同，跳过添加
                     if (existingTask.produceTime == produceTime) {
-                         Log.record(TAG, "蹲点任务[$taskId]已存在且时间相同，跳过重复添加")
+                         Log.debug(TAG, "蹲点任务[$taskId]已存在且时间相同，跳过重复添加")
                         return@withLock
                     }
                     // 如果时间不同，记录更新信息
@@ -529,7 +529,7 @@ object EnergyWaitingManager {
                         Log.record(TAG, "🎲 随机间隔控制：延迟${delayTime / 1000}秒执行蹲点任务[${task.taskId}]（随机间隔${randomIntervalMs/1000}秒）")
                         delay(delayTime)
                     } else {
-                         Log.record(TAG, "⚡ 无需延迟：距离上次执行已超过${timeSinceLastExecute/1000}秒")
+                         Log.debug(TAG, "无需延迟：距离上次执行已超过${timeSinceLastExecute/1000}秒")
                     }
                 }
 
