@@ -68,7 +68,7 @@ object UserEnergyPatternManager {
         )
 
         userPatterns[userId] = updatedPattern
-         Log.record(TAG, "更新用户[${userId}]模式：成功率[${String.format("%.2f", newSuccessRate)}] 响应时间[${newAvgResponseTime}ms] 活跃[${isActive}]")
+         Log.debug(TAG, "更新用户[${userId}]模式：成功率[${String.format("%.2f", newSuccessRate)}] 响应时间[${newAvgResponseTime}ms] 活跃[${isActive}]")
     }
 
     /**
