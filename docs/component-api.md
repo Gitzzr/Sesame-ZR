@@ -6,7 +6,7 @@
 
 ---
 
-## 0. 总览：本项目有 6 类「组件」
+## 0. 总览：本项目有 7 类「组件」
 
 | 类型 | 位置 | 复用方式 |
 | --- | --- | --- |
@@ -16,6 +16,7 @@
 | **D. Native ↔ JS 桥** | `ui/WebSettingsActivity.java` → `window.HOOK` / `window.Android` | Web 页面通过 `window.HOOK.*` 调 Kotlin |
 | **E. 内置 HTTP 接口** | `hook/server/handlers/` | 外部工具 HTTP 调用，跑在 `0.0.0.0:<port>` |
 | **F. 配置模型 API** | `model/ModelField` + `modelFieldExt/` | 声明式设置项，两套 UI 自动渲染 |
+| **G. 日志读取工具** | `util/Log*.kt` | 纯逻辑 + `java.io`，可直接 JVM 单测 |
 
 ---
 
@@ -474,7 +475,78 @@ enum class UiMode(val value: String) {
 
 ---
 
-## G. 组件约定与坑
+## G. 日志读取工具（`util/Log*`）
+
+日志查看器用的一组工具。**全部不依赖 Android API**，所以能在 JVM 单测里直接跑
+（这也是 `LogSource` 用 `LinkedHashMap` 自己实现 LRU、而不是用 `android.util.LruCache` 的原因）。
+
+### G1. `LogFileHistory` —— 按天枚举历史分片
+
+```kotlin
+data class Partition(val file: File, val shardIndex: Int)   // 活动文件 shardIndex = -1
+data class ParsedShard(val logName: String, val date: String, val index: Int)
+
+fun parseShardName(fileName: String, expectLogName: String? = null): ParsedShard?
+fun dayKey(now: Long = System.currentTimeMillis()): String                   // 设备默认时区
+fun isToday(date: String, now: Long = System.currentTimeMillis()): Boolean
+fun availableDates(logDir: File, logName: String, now: Long = ...): List<String>   // 倒序
+fun partitionsOf(logDir: File, logName: String, date: String, now: Long): List<Partition>
+fun resolveReadableLogDir(candidates: List<File>, logName: String): File?
+```
+
+- 分片命名：`<logName>-<yyyy-MM-dd>.<i>.log`（`i` 是同一天内的**分片序号**）
+- `partitionsOf` 按序号**数值**升序；`date` 为今天时把活动文件 `<logName>.log` 追加在最后
+- 日期只能从**文件名**反推 —— 日志行里的时间戳没有年份
+
+### G2. `LogSource` —— 多文件 = 单一偏移空间
+
+```kotlin
+class LogSource(partitions: List<Partition>, maxOpen: Int = 4) : Closeable {
+    fun readLineAt(packed: Long): String?
+    fun files(): List<File>
+    fun base(seq: Int): Long
+    companion object {
+        fun baseOf(seq: Int): Long   // seq shl 40
+        fun seqOf(packed: Long): Int
+        fun offOf(packed: Long): Long
+    }
+}
+```
+
+把 `(分片序号, 文件内偏移)` 打包成一个 `Long`，使上层的偏移表 / 行缓存 / tag 索引 /
+错误行集合全都保持 `<Long>`；打包值天然按 (序号, 偏移) 升序。句柄用访问序 LRU 限量。
+
+### G3. `LogDayIndexer` —— 多分片索引
+
+```kotlin
+data class IndexResult(offsets, tags, errorOffsets, truncated)
+fun readTail(partitions, tailBytes): IndexResult
+fun scan(partitions, bufferBytes, maxLines, isActive): IndexResult
+```
+
+`scan` **从最新分片往前扫**，凑够 `maxLines` 即停（更旧的反正会被丢掉），
+`truncated` 告知上层「有内容没保留」，由界面如实提示。
+
+### G4. `LogIndexBuilder` —— 单文件流式索引
+
+```kotlin
+class LogIndexBuilder(startOffset: Long = 0L) {
+    fun feed(buffer: ByteArray, offset: Int = 0, length: Int = buffer.size)
+    fun finish()
+    fun offsets(): List<Long>; fun tags(): Map<Long, String>; fun errorOffsets(): Set<Long>
+}
+```
+
+一遍过产出「行偏移 + `[tag]` + 错误行偏移」，**零随机读**（旧实现逐行 `seek+readLine`）。
+
+### G5. 约定
+
+- 顺序扫描**必须用独立流**，不要复用 `LogSource` 的句柄 —— 文件指针会被并发 seek 抢走。
+- 新增 logName 时记得在 `LogCatalog.LABELS` 补中文名，否则标题会显示「<name> 日志」。
+
+---
+
+## H. 组件约定与坑
 
 1. **`SettingsComponents.kt` 缺 `package` 行** —— `SettingsSwitchItem` 落在默认包，与同目录其他文件不一致，建议补齐。
 2. **`ListDialog` 用静态字段存对话框引用**（`static AlertDialog listDialog`），是单例式实现，**同一时刻只能开一个**。
