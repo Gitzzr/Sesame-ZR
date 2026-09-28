@@ -95,7 +95,7 @@ fun ModuleStatusCard(
                     Text(text = "故障排查指南", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(8.dp))
                     HtmlText(
-                        html = "查看帮助 <a href=\"https://github.com/Fansirsqi/Sesame-TK/wiki/%E6%97%A0Root\">免Root食用指南</a>"
+                        html = "查看帮助：免Root食用指南"
                     )
                     Text(text = "Lspatch/Npatch/FPA/Opatch 请忽略此状态", style = MaterialTheme.typography.titleSmall)
                 }

@@ -14,7 +14,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import fansirsqi.xposed.sesame.SesameApplication.Companion.PREFERENCES_KEY
 import fansirsqi.xposed.sesame.SesameApplication.Companion.hasPermissions
-import fansirsqi.xposed.sesame.ui.extension.openUrl
 import fansirsqi.xposed.sesame.ui.screen.MainScreen
 import fansirsqi.xposed.sesame.ui.theme.AppTheme
 import fansirsqi.xposed.sesame.ui.theme.ThemeManager
@@ -115,7 +114,6 @@ class MainActivity : ComponentActivity() {
         data object RefreshOneWord : MainUiEvent()
         data object OpenForestLog : MainUiEvent()
         data object OpenFarmLog : MainUiEvent()
-        data object OpenGithub : MainUiEvent()
         data object OpenErrorLog : MainUiEvent()
         data object OpenOtherLog : MainUiEvent()
         data object OpenAllLog : MainUiEvent()
@@ -141,7 +139,6 @@ class MainActivity : ComponentActivity() {
             MainUiEvent.OpenForestLog -> openLogFile(Files.getForestLogFile())
             MainUiEvent.OpenFarmLog -> openLogFile(Files.getFarmLogFile())
             MainUiEvent.OpenOtherLog -> openLogFile(Files.getOtherLogFile())
-            MainUiEvent.OpenGithub -> openUrl("https://github.com/Gitzzr/Sesame-ZR")
             MainUiEvent.OpenErrorLog -> openLogFile(Files.getErrorLogFile())
             MainUiEvent.OpenAllLog -> openLogFile(Files.getRecordLogFile())
             MainUiEvent.OpenDebugLog -> openLogFile(Files.getDebugLogFile())

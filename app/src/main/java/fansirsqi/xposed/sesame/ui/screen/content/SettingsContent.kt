@@ -14,7 +14,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.LibraryBooks
-import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.DeleteForever
@@ -32,7 +31,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import fansirsqi.xposed.sesame.BuildConfig
@@ -59,7 +57,6 @@ fun SettingsContent(
     // 状态定义在最外层
     var showClearConfigDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
-    val uriHandler = LocalUriHandler.current
     val prefs = context.getSharedPreferences(PREFERENCES_KEY, MODE_PRIVATE)
     var isIconHidden by remember { mutableStateOf(prefs.getBoolean("is_icon_hidden", false)) }
 
@@ -189,25 +186,6 @@ fun SettingsContent(
                     icon = Icons.Rounded.DeleteForever,
                     isDanger = true,
                     onClick = { showClearConfigDialog = true } // 点击只改变状态
-                )
-            }
-
-            item {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "支持",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-
-            item {
-                SettingsItem(
-                    title = "Github",
-                    icon = Icons.AutoMirrored.Rounded.OpenInNew,
-                    onClick = {
-                        uriHandler.openUri("https://github.com/Gitzzr/Sesame-ZR")
-                    }
                 )
             }
 
