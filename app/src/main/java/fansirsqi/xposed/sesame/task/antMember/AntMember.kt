@@ -1098,7 +1098,7 @@ class AntMember : ModelTask() {
             val adTasks = MemberTaskProtocol.parseAdTasks(queryResponse)
             val browseTasks = MemberTaskProtocol.parseBrowseTasks(queryResponse)
             if (adTasks.isEmpty() && browseTasks.isEmpty()) {
-                record(TAG, "会员任务🎖️[暂无可执行任务]")
+                Log.debug(TAG, "会员任务🎖️[暂无可执行任务]")
                 return@run
             }
 

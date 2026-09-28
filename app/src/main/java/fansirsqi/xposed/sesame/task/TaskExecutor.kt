@@ -123,7 +123,7 @@ enum class GameTask(
 
             val resJson = JSONObject(responseText)
             if (resJson.optInt("code") == 1) {
-                if (current % requestsPerEgg == 0) Log.other(title, "📈 进度: $current/$total (已达成 ${current/requestsPerEgg} 个蛋)")
+                if (current % requestsPerEgg == 0) Log.debug(title, "进度: $current/$total (已达成 ${current/requestsPerEgg} 个蛋)")
                 true
             } else {
                 // 💡 修正：这里会直接打印出服务器返回的完整错误 JSON，比如 {"code":0,"msg":"token invalid"...}

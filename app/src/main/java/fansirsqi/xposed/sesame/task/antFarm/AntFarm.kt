@@ -2469,6 +2469,13 @@ class AntFarm : ModelTask() {
         val jo = JSONObject(result)
         if (ResChecker.checkRes(TAG, jo)) {
             Log.farm("庄园任务完成🧾[$title]")
+            // 一天一次：这类任务服务端本就一天一次，原先只在返回 309 时才锁定，
+            // 结果同一任务当天被重复处理 40+ 次（2026-09-28 实测）。
+            // 成功后即锁定，并写进台账供第二天核对「限制了之后到底完成没有」。
+            Status.setFlagToday("farm::task::limit::$bizKey")
+            fansirsqi.xposed.sesame.task.DailyOnceAudit.record(
+                UserMap.currentUid, "farm::task::limit::$bizKey", "庄园任务[$title]"
+            )
         } else {
             val resultCode = jo.optString("resultCode", "")
             if (resultCode == "309") {

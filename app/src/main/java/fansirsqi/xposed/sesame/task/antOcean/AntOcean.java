@@ -836,7 +836,7 @@ public class AntOcean extends ModelTask {
                         GlobalThreadPools.sleepCompat(500);
                     } else if (TaskStatus.TODO.name().equals(taskStatus)) {
                         if (badTaskSet.contains(taskTitle)) {
-                            Log.record(TAG, "海洋任务🌊[" + taskTitle + "]已在黑名单中，跳过处理");
+                            Log.debug(TAG, "海洋任务🌊[" + taskTitle + "]已在黑名单中，跳过处理");
                             continue;
                         }
                         if (taskTitle.contains("答题")) {

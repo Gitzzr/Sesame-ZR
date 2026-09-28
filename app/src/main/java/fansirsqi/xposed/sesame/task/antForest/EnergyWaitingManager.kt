@@ -169,6 +169,24 @@ object EnergyWaitingManager {
 
     // 蹲点任务存储
     private val waitingTasks = ConcurrentHashMap<String, WaitingTask>()
+
+    /** 离线期间只提示一次，避免每个任务每分钟重复一句 */
+    @Volatile
+    private var offlinePausedLogged = false
+
+    /**
+     * 离线解除后立刻恢复被搁置的蹲点任务，不必等下一轮。
+     *
+     * 配合 [ApplicationHook.setOffline] 调用；没有待收任务时什么也不做。
+     */
+    @JvmStatic
+    fun onOfflineCleared() {
+        offlinePausedLogged = false
+        val pending = waitingTasks.values.toList()
+        if (pending.isEmpty()) return
+        Log.record(TAG, "▶️ 离线解除，恢复 ${pending.size} 个蹲点任务")
+        pending.forEach { startPreciseWaitingCoroutine(it) }
+    }
     private val runningTasks = UniqueTaskRegistry<Job>()
 
     // 智能重试策略
@@ -633,19 +651,13 @@ object EnergyWaitingManager {
                             "蹲点收取[${task.getUserTypeTag()}${task.userName}]$resultType：${result.message}"
                         )
                         if (ApplicationHook.offline) {
-                            // 暂停态下所有请求都被本地门控拦下，重试只会空烧次数。
-                            // 实测 2026-09-27：07:00–07:30 的蹲点全部走完 4 次重试后被判
-                            // 「已达最大重试次数」而删除，暂停解除后也不再收取。
-                            // 这里保留原 retryCount 顺延，等离线解除后再试。
-                            Log.record(
-                                TAG,
-                                "蹲点收取[${task.getUserTypeTag()}${task.userName}]遇本地暂停，顺延 60 秒后再试（不消耗重试次数）"
-                            )
-                            managerScope.launch {
-                                delay(60_000L)
-                                if (waitingTasks.containsKey(task.taskId)) {
-                                    startPreciseWaitingCoroutine(task)
-                                }
+                            // 暂停态下所有请求都被本地门控拦下，重试只会空烧次数与日志：
+                            // 实测 2026-09-28 离线 52 分钟里，这句按 60 秒一任务刷了 1700 行。
+                            // 现在不再定时重试 —— 任务留在 waitingTasks 里，
+                            // 离线一解除由 onOfflineCleared() 就地恢复，兜底还有下一轮重新评估。
+                            if (!offlinePausedLogged) {
+                                offlinePausedLogged = true
+                                Log.record(TAG, "⏸ 模块离线中，${waitingTasks.size} 个蹲点任务暂停等待（恢复后自动继续）")
                             }
                         } else if (task.retryCount < task.maxRetries) {
                             val retryTask = task.withRetry()

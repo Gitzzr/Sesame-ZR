@@ -140,9 +140,17 @@ object EcoLife {
                     val actionId = actionItem.getString("actionId")
                     val actionName = actionItem.getString("actionName")
                     if ("photoguangpan" == actionId) continue
+                    // 一天一次：今天已经打卡成功的项不再重复提交（服务端会拒，白跑请求）
+                    if (Status.hasFlagToday("EcoLife::tick::$actionId")) continue
                     val jo = JSONObject(AntForestRpcCall.ecolifeTick(actionId, dayPoint, source))
                     if (ResChecker.checkRes(TAG, jo)) {
                         Log.forest("绿色打卡🍀[$actionName]") // 成功打卡日志
+                        Status.setFlagToday("EcoLife::tick::$actionId")
+                        fansirsqi.xposed.sesame.task.DailyOnceAudit.record(
+                            fansirsqi.xposed.sesame.util.maps.UserMap.currentUid,
+                            "EcoLife::tick::$actionId",
+                            "绿色打卡[$actionName]"
+                        )
                         recordEcoAction(TITLE_CHECK_IN, actionName, true, null)
                     } else {
                         // 记录失败原因

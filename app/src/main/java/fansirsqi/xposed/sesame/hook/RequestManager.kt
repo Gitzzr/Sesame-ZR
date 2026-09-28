@@ -462,6 +462,48 @@ object RequestManager {
     }
 
     /**
+     * 自愈看门狗：判断离线是否已经过去。
+     *
+     * 顺序：① 若是「安全验证暂停」，先看 30 分钟 TTL 能否就地解除（不打扰用户）；
+     * ② 网络类离线则**绕过离线门控**真的发一次轻量请求，拿到响应即认为链路恢复。
+     *
+     * 背景（2026-09-28 实测）：离线期间主任务见 offline 直接返回、蹲点又被门控拦下，
+     * 没有任何东西再去探测，于是从 19:08 静默到 19:59（52 分钟）一个球都没收。
+     *
+     * @return true = 已恢复（离线已解除）
+     */
+    @JvmStatic
+    fun probeOfflineRecovery(attempt: Int): Boolean {
+        if (isVerificationPaused()) {
+            if (releaseExpiredVerificationPause()) return true
+            if (OfflineRecoveryPolicy.shouldLogProbe(attempt)) {
+                Log.record(TAG, "离线探测#$attempt：仍在安全验证暂停中，等人工恢复或 30 分钟 TTL")
+            }
+            return false
+        }
+        val alive = runCatching { rawProbe() }.getOrDefault(false)
+        if (alive) {
+            recoveryPolicy.reset()
+            ApplicationHook.setOffline(false)
+            Log.record(TAG, "离线探测#$attempt：链路已恢复，解除离线")
+            return true
+        }
+        if (OfflineRecoveryPolicy.shouldLogProbe(attempt)) {
+            Log.record(TAG, "离线探测#$attempt：仍不可用，稍后再试")
+        }
+        return false
+    }
+
+    /** 绕过离线门控直接问一次森林主页，只看有没有响应。 */
+    private fun rawProbe(): Boolean {
+        val bridge = getRpcBridge() ?: return false
+        val args = "[{\"activityParam\":{},\"configVersionMap\":{\"wateringBubbleConfig\":\"0\"}," +
+                "\"skipWhackMole\":false,\"source\":\"chInfo_ch_appcenter__chsub_9patch\",\"version\":\"20250813\"}]"
+        val res = bridge.requestString("alipay.antforest.forest.h5.queryHomePage", args)
+        return !res.isNullOrEmpty() && res.contains("\"success\"")
+    }
+
+    /**
      * 获取 RpcBridge 实例
      */
     @RequiresPermission(Manifest.permission.ACCESS_NETWORK_STATE)
