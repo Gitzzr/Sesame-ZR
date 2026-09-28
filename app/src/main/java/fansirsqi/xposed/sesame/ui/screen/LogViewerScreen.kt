@@ -156,7 +156,7 @@ fun LogViewerScreen(
 
     // 智能自动滚动控制
     LaunchedEffect(listState.canScrollForward, listState.isScrollInProgress) {
-        if (!state.isLoading && state.mappingList.isNotEmpty()) {
+        if (!state.isLoading && state.hasContent) {
             if (!listState.canScrollForward) {
                 viewModel.toggleAutoScroll(true)
             } else if (listState.isScrollInProgress) {
@@ -453,7 +453,7 @@ fun LogViewerScreen(
                     }
                 }
         ) {
-            if (state.isLoading && state.mappingList.isEmpty()) {
+            if (state.isLoading && !state.hasContent) {
                 Column(
                     modifier = Modifier.align(Alignment.Center),
                     horizontalAlignment = Alignment.CenterHorizontally
