@@ -53,7 +53,7 @@ fun HomeContent(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    "bug反馈，请在github提issues",
+                    "问题请到项目页面反馈",
                     textAlign = TextAlign.Center,
                     color = MaterialTheme.colorScheme.error,
                     fontWeight = FontWeight.Bold,
