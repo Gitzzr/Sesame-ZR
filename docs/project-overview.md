@@ -182,5 +182,7 @@ Sesame-ZR/
 | 搭环境、跑命令、回归 | [`development.md`](development.md) |
 | 改界面 / 视觉规范 | [`../DESIGN.md`](../DESIGN.md) |
 | 复用组件 / 对接 API | [`component-api.md`](component-api.md) |
+| 改「一天一次」限制 / 核对昨天有没有漏做 | [`daily-once-tasks.md`](daily-once-tasks.md) |
+| 查好友互动（浇水/帮喂/送麦子…）的每日上限 | [`interaction-limits.md`](interaction-limits.md) |
 | 看当前该做什么 | [`../TODO.md`](../TODO.md) |
 | 看某个功能为什么这么设计 | `superpowers/specs/` + `superpowers/plans/` |
