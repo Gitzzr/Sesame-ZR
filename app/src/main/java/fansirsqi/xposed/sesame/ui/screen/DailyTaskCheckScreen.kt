@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import com.fasterxml.jackson.core.type.TypeReference
 import fansirsqi.xposed.sesame.model.Model
 import fansirsqi.xposed.sesame.task.ActionEntry
+import fansirsqi.xposed.sesame.task.DailyOnceAudit
 import fansirsqi.xposed.sesame.task.DailyTaskLog
 import fansirsqi.xposed.sesame.task.DailyTaskLogPolicy
 import fansirsqi.xposed.sesame.task.DailyTaskLogRecorder
@@ -196,6 +197,26 @@ fun DailyTaskCheckScreen(onBack: () -> Unit) {
                 }
             }
 
+            SectionCard(title = "每日一次", tone = SectionTone.NORMAL) {
+                if (snapshot.dailyOnce.isEmpty()) {
+                    EmptyHint("今天还没有任务被锁定为「每日一次」")
+                } else {
+                    Text(
+                        text = "已锁定 ${snapshot.dailyOnce.size} 项（成功即锁定，当天不再重复）",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    snapshot.dailyOnce.forEach { entry ->
+                        RecordRow(
+                            title = entry.label.ifBlank { entry.flag },
+                            trailing = formatTime(entry.at),
+                            failed = false,
+                            detail = null
+                        )
+                    }
+                }
+            }
+
             SectionCard(title = "绿色行动", tone = SectionTone.NORMAL) {
                 snapshot.ecoTasks.forEach { EcoTaskRow(it) }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
@@ -232,7 +253,9 @@ private data class CheckSnapshot(
     /** 已抓取的光盘行动照片，按抓取时间倒序 */
     val platePhotos: List<PlatePhoto>,
     /** 是否成功读到任务开关；为空说明模型没加载，页面需要如实说明而不是当成「都没开」 */
-    val switchesLoaded: Boolean
+    val switchesLoaded: Boolean,
+    /** 今天被「每日一次」锁定的任务台账，供第二天核对 */
+    val dailyOnce: List<DailyOnceAudit.Entry>
 )
 
 /**
@@ -266,9 +289,10 @@ private fun loadSnapshot(): CheckSnapshot {
     val attention = DailyTaskLogPolicy.expectedStatus(enabled) { name ->
         DailyTaskLogPolicy.countFor(name, log)
     }.sortedWith(compareBy({ !it.missing && it.failCount == 0 }, { !it.missing }))
+    val day = log.day.ifEmpty { DailyTaskLogRecorder.dayKey(System.currentTimeMillis()) }
 
     return CheckSnapshot(
-        day = log.day.ifEmpty { DailyTaskLogRecorder.dayKey(System.currentTimeMillis()) },
+        day = day,
         accountName = UserMap.getCurrentMaskName()?.takeIf { it.isNotEmpty() } ?: "未载入账号",
         attention = attention.filter { it.missing || it.failCount > 0 },
         energyRain = log.energyRain.sortedByDescending { it.at },
@@ -290,6 +314,9 @@ private fun loadSnapshot(): CheckSnapshot {
             ecoTaskView(EcoLife.TITLE_PLATE, enabled, log.actions)
         ),
         platePhotos = runCatching { readPlatePhotos() }.getOrDefault(emptyList()),
+        // 今日被「每日一次」锁定的任务台账：第二天打开这一页就能核对「限制了之后完成没有」
+        dailyOnce = runCatching { DailyOnceAudit.entriesOf(UserMap.currentUid, day) }
+            .getOrDefault(emptyList()),
         switchesLoaded = enabled.isNotEmpty()
     )
 }

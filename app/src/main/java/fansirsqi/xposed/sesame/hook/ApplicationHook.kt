@@ -471,9 +471,46 @@ class ApplicationHook {
         @Volatile
         var offline: Boolean = false
 
+        /** 进入离线的时刻，用于在解除时打出「持续了多久」 */
+        private var offlineSince = 0L
+
         @JvmStatic
         fun setOffline(value: Boolean) {
+            if (offline == value) return
             offline = value
+            if (value) {
+                offlineSince = System.currentTimeMillis()
+                Log.record(TAG, "⛔ 已进入离线：后续请求会被本地门控拦下，将按 2/5/15/30 分钟节奏自动探测恢复")
+                startOfflineProbe(1)
+            } else {
+                // offlineSince == 0 说明不是「我们置的离线」（例如进程刚初始化），不必打解除日志
+                if (offlineSince > 0L) {
+                    val minutes = (System.currentTimeMillis() - offlineSince) / 60_000L
+                    Log.record(TAG, "✅ 离线已解除（持续 ${minutes} 分钟）")
+                }
+                offlineSince = 0L
+                // 离线期间被搁置的蹲点任务就地恢复，不必等下一轮
+                runCatching { fansirsqi.xposed.sesame.task.antForest.EnergyWaitingManager.onOfflineCleared() }
+            }
+        }
+
+        /**
+         * 离线期间的探测看门狗。
+         *
+         * 旧实现只在「下一次请求被门控拦下」时才尝试恢复，而离线期间恰恰没有请求 ——
+         * 于是恢复只能等宿主重启（实测挂了 52 分钟）。这里改成主动按策略探测。
+         */
+        private fun startOfflineProbe(attempt: Int) {
+            if (!offline) return
+            schedule(OfflineRecoveryPolicy.probeDelayMs(attempt), "离线探测") {
+                if (!offline) return@schedule
+                if (RequestManager.probeOfflineRecovery(attempt)) return@schedule
+                if (OfflineRecoveryPolicy.shouldReopenApp(attempt)) {
+                    record(TAG, "离线探测#$attempt：顺带把支付宝拉回前台尝试恢复")
+                    reOpenApp()
+                }
+                startOfflineProbe(attempt + 1)
+            }
         }
 
         @Volatile
@@ -644,7 +681,7 @@ class ApplicationHook {
                 record(successMsg)
                 show(successMsg)
 
-                offline = false
+                setOffline(false)
                 RequestManager.onRpcBridgeReady()
                 init = true
                 execHandler()
@@ -773,7 +810,7 @@ class ApplicationHook {
                     val intent = Intent(Intent.ACTION_VIEW)
                     intent.setClassName(General.PACKAGE_NAME, General.CURRENT_USING_ACTIVITY)
                     intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    offline = true
+                    setOffline(true)
                     if (appContext != null) appContext!!.startActivity(intent)
                 } catch (e: Exception) {
                     error(TAG, "重启Activity失败: " + e.message)

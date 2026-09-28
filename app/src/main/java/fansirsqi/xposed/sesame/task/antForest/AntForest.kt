@@ -951,7 +951,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                     queryAndConsumeAnimal()
                     tc.countDebug("森林巡护")
                 } else {
-                    Log.record("已经有动物伙伴在巡护森林~")
+                    Log.debug("已经有动物伙伴在巡护森林~")
                 }
 
                 if (combineAnimalPiece!!.value) {
