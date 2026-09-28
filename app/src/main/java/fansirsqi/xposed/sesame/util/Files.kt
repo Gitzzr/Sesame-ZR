@@ -397,6 +397,60 @@ object Files {
         }
     }
 
+    /**
+     * 把**一组**文件按顺序合并导出成单个文件（用于导出「一整天」的日志）。
+     *
+     * 滚动日志的一天是多份分片（实测最多 62 份），逐份导出得到一堆文件并不好用；
+     * 这里按传入顺序（调用方保证是时间升序）追写到同一目标。
+     *
+     * 命名与目标目录与 [exportFile] 保持一致：`Downloads/sesame-TK/<baseName>[_时间戳].log`。
+     *
+     * @param files   要合并的文件，按顺序
+     * @param baseName 目标文件名（不含扩展名），如 `error-2026-09-24`
+     * @param hasTime  是否在文件名里加导出时间戳
+     */
+    @JvmStatic
+    fun exportMerged(files: List<File>, baseName: String, hasTime: Boolean): File? {
+        val existed = files.filter { it.exists() && it.canRead() }
+        if (existed.isEmpty()) {
+            Log.error(TAG, "exportMerged: 没有可读的源文件")
+            return null
+        }
+        val exportDir = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+            CONFIG_DIR_NAME
+        )
+        if (!exportDir.exists() && !exportDir.mkdirs()) {
+            Log.error(TAG, "Failed to create export directory: ${exportDir.absolutePath}")
+            return null
+        }
+
+        val stamp = if (hasTime) {
+            @SuppressLint("SimpleDateFormat")
+            "_" + SimpleDateFormat("yyyy-MM-dd_HH.mm.ss").format(Date())
+        } else {
+            ""
+        }
+        val exportFile = File(exportDir, "$baseName$stamp.log")
+        if (exportFile.exists() && exportFile.isDirectory) {
+            if (!exportFile.delete()) return null
+        }
+
+        return try {
+            // 追加写：逐份分片顺序拷进去
+            exportFile.outputStream().use { output ->
+                existed.forEach { part ->
+                    part.inputStream().use { input -> input.copyTo(output) }
+                }
+            }
+            exportFile
+        } catch (e: Exception) {
+            Log.printStackTrace(TAG, "exportMerged failed", e)
+            runCatching { exportFile.delete() }
+            null
+        }
+    }
+
     @JvmStatic
     fun copy(source: File, dest: File): Boolean {
         // Kotlin 扩展方法，内部使用了 FileChannel 或 Files.copy

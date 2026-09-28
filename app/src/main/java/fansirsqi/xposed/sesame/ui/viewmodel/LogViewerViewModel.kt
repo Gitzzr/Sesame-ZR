@@ -12,7 +12,12 @@ import fansirsqi.xposed.sesame.R
 import fansirsqi.xposed.sesame.SesameApplication.Companion.PREFERENCES_KEY
 import fansirsqi.xposed.sesame.util.Files
 import fansirsqi.xposed.sesame.util.Log
+import fansirsqi.xposed.sesame.data.General
+import fansirsqi.xposed.sesame.util.LogCatalog
+import fansirsqi.xposed.sesame.util.LogDayIndexer
+import fansirsqi.xposed.sesame.util.LogFileHistory
 import fansirsqi.xposed.sesame.util.LogIndexBuilder
+import fansirsqi.xposed.sesame.util.LogSource
 import fansirsqi.xposed.sesame.util.ToastUtil
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -28,6 +33,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -36,6 +42,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.RandomAccessFile
 import java.nio.charset.StandardCharsets
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 
 
@@ -54,7 +61,30 @@ data class LogUiState(
     val availableTags: List<String> = emptyList(),
     val selectedTag: String? = null,
     val showErrorOnly: Boolean = false,
-    val errorCount: Int = 0
+    val errorCount: Int = 0,
+    // ✨ 日期维度（历史日志）
+    /** 当前日志的 logName，如 error */
+    val logName: String = "",
+    /** logName 的中文名，用于标题 */
+    val logLabel: String = "",
+    /** 当前查看的日期（yyyy-MM-dd） */
+    val currentDate: String = "",
+    /** 今天（yyyy-MM-dd），界面据此判断能否继续往后翻 */
+    val todayKey: String = "",
+    /** 有数据的日期，倒序（今天在最前） */
+    val availableDates: List<String> = emptyList(),
+    /** 是否在看历史（非今天）：历史只读，且不起文件监听 */
+    val isHistory: Boolean = false,
+    /** 当天的分片数（>1 时界面会标注） */
+    val shardCount: Int = 0,
+    /** 有更旧的内容被丢弃（超过 maxLines，或为省时间没读更旧的分片） */
+    val truncated: Boolean = false,
+    /** 该日期没有可读日志（例如历史已被清理） */
+    val noData: Boolean = false,
+    /** 导出前需要确认（当天分片多/体积大时先问一次） */
+    val exportConfirm: Boolean = false,
+    /** 确认弹窗里的说明文案 */
+    val exportSummary: String = ""
 )
 
 /**
@@ -80,13 +110,20 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
     // 新增：文件更新信号通道 (CONFLATED 表示如果处理不过来，只保留最新的信号)
     private val fileUpdateChannel = Channel<Unit>(Channel.CONFLATED)
     private var fileObserver: FileObserver? = null
+
+    /** 当前查看的日期键（"logName@yyyy-MM-dd"），用于幂等守卫 */
+    private var currentKey: String? = null
+
+    /** 仅当查看「今天」时指向活动文件（供清空 / 监听 / 追加）；历史态为 null */
     private var currentFilePath: String? = null
     private var searchJob: Job? = null
     private var loadJob: Job? = null
     private var updateJob: Job? = null // ✅ 新增:文件更新任务
 
     // --- 核心数据结构 ---
-    private var raf: RandomAccessFile? = null
+    /** 当前这一天对应的分片集合（今天 = 当日分片 + 活动文件；历史 = bak 分片） */
+    private var source: LogSource? = null
+    private var partitions: List<LogFileHistory.Partition> = emptyList()
     private val allLineOffsets = ArrayList<Long>()
     private var displayLineOffsets: List<Long> = emptyList()
     private val lineCache = LruCache<Long, String>(200)
@@ -103,6 +140,12 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
 
         /** 全量扫描的读缓冲 */
         private const val SCAN_BUFFER_BYTES = 64 * 1024
+
+        /** 导出前需要确认的分片数阈值 */
+        private const val EXPORT_CONFIRM_SHARDS = 20
+
+        /** 导出前需要确认的总体积阈值（50MB） */
+        private const val EXPORT_CONFIRM_BYTES = 50L * 1024 * 1024
     }
 
     // ✅ 使用 AtomicLong 保证线程安全
@@ -112,14 +155,118 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
     // ✅ 用于防抖的互斥锁
     private val updateMutex = Mutex()
 
-    @OptIn(FlowPreview::class)
+    /**
+     * 打开某分类的**当天**日志（旧入口：调用方只给一个文件路径）。
+     *
+     * 历史日期与前后翻页走 [openDay]；这里把路径反解成 logName，语义等价于「打开今天的该日志」。
+     * 一天通常是多个分片（实测 `error-2026-09-24` 有 62 个），所以内部不按单文件处理。
+     */
     fun loadLogs(path: String) {
-        if (currentFilePath == path && loadJob?.isActive == true) return
-        currentFilePath = path
+        val logName = File(path).nameWithoutExtension
+        if (logName.isEmpty()) return
+        // Activity 重建（旋转 / 恢复）会再调一次 loadLogs：同一个分类时保持当前日期，
+        // 别把正在看历史的用户拉回今天；openDay 内部有幂等守卫，重复调用不会重扫。
+        val opened = _uiState.value
+        val date = if (opened.logName == logName && opened.currentDate.isNotEmpty()) {
+            opened.currentDate
+        } else {
+            LogFileHistory.dayKey()
+        }
+        openDay(logName, date)
+    }
+
+    /** 打开某个 logName 的某一天 */
+    fun openDay(logName: String, date: String) {
+        val key = "$logName@$date"
+        if (currentKey == key && loadJob?.isActive == true) return
+        currentKey = key
 
         loadJob?.cancel()
         updateJob?.cancel()
+        closeFile()
 
+        loadJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isLoading = true, hasContent = false, totalCount = 0, noData = false,
+                    logName = logName, logLabel = LogCatalog.labelOf(logName),
+                    currentDate = date, todayKey = LogFileHistory.dayKey(),
+                    isHistory = !LogFileHistory.isToday(date),
+                    exportConfirm = false
+                )
+            }
+
+            val logDir = LogFileHistory.resolveReadableLogDir(candidateLogDirs(), logName)
+            if (logDir == null) {
+                _uiState.update { it.copy(isLoading = false, noData = true) }
+                return@launch
+            }
+
+            val dates = LogFileHistory.availableDates(logDir, logName)
+            val parts = LogFileHistory.partitionsOf(logDir, logName, date)
+                .filter { it.file.exists() && it.file.canRead() }
+            if (parts.isEmpty()) {
+                // 历史可能刚被 Logback 的 isCleanHistoryOnStart 清掉
+                _uiState.update {
+                    it.copy(isLoading = false, noData = true, availableDates = dates)
+                }
+                return@launch
+            }
+
+            source = LogSource(parts)
+            partitions = parts
+            val isToday = LogFileHistory.isToday(date)
+            currentFilePath = if (isToday) parts.last().file.absolutePath else null
+            _uiState.update {
+                it.copy(availableDates = dates, shardCount = parts.size, isHistory = !isToday)
+            }
+
+            indexContent(parts)
+
+            // 只有今天需要跟随写入：历史是静态归档
+            if (isToday) {
+                startUpdateJob()
+                currentFilePath?.let { startFileObserver(it) }
+            }
+        }
+    }
+
+    /** 切到某一天（日期下拉用） */
+    fun selectDate(date: String) {
+        val logName = _uiState.value.logName.ifEmpty { return }
+        openDay(logName, date)
+    }
+
+    /** 往前一天（更旧）；已是最旧则不动 */
+    fun goToOlderDay() {
+        val state = _uiState.value
+        val idx = state.availableDates.indexOf(state.currentDate)
+        if (idx < 0 || idx >= state.availableDates.lastIndex) return
+        openDay(state.logName, state.availableDates[idx + 1])
+    }
+
+    /** 往后一天（更新）；已是今天则不动 */
+    fun goToNewerDay() {
+        val state = _uiState.value
+        val idx = state.availableDates.indexOf(state.currentDate)
+        if (idx <= 0) return
+        openDay(state.logName, state.availableDates[idx - 1])
+    }
+
+    /** 日志目录候选：与 Logback 的写入口径一致（media 目录不可写时会回退到应用私有目录） */
+    private fun candidateLogDirs(): List<File> {
+        val ctx = getApplication<Application>()
+        return listOfNotNull(
+            Files.LOG_DIR,
+            File("/sdcard/Android/data/${General.PACKAGE_NAME}/files/logs"),
+            ctx.getExternalFilesDir("logs"),
+            File(ctx.filesDir, "logs")
+        ).distinct()
+    }
+
+    @OptIn(FlowPreview::class)
+    private fun startUpdateJob() {
+        updateJob?.cancel()
         updateJob = viewModelScope.launch {
             fileUpdateChannel.receiveAsFlow()
                 .debounce(200)
@@ -127,57 +274,41 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
                     handleFileUpdate()
                 }
         }
-
-        loadJob = viewModelScope.launch {
-            closeFile()
-            _uiState.update { it.copy(isLoading = true, hasContent = false, totalCount = 0) }
-
-            val file = File(path)
-            if (!file.exists() || !file.canRead()) {
-                _uiState.update { it.copy(isLoading = false) }
-                return@launch
-            }
-
-            indexFileContent(file)
-            startFileObserver(path)
-        }
     }
 
 
 
-    private suspend fun indexFileContent(file: File) = withContext(Dispatchers.IO) {
+    /**
+     * 索引「一整天」：[parts] 是该日期的分片（升序，今天的话最后一个分片是活动文件）。
+     *
+     * ① 先读最后一个分片的尾部让界面立刻出内容；
+     * ② 再全量索引 —— [LogDayIndexer.scan] 会从最新分片往前扫，凑够 [maxLines] 即停。
+     */
+    private suspend fun indexContent(parts: List<LogFileHistory.Partition>) = withContext(Dispatchers.IO) {
         try {
-            val localRaf = RandomAccessFile(file, "r")
-            raf = localRaf
-
-            val fileSize = localRaf.length()
-            lastKnownFileSize.set(fileSize)
-            if (fileSize == 0L) {
+            lastKnownFileSize.set(parts.lastOrNull()?.file?.length() ?: 0L)
+            if (parts.all { it.file.length() == 0L }) {
                 applyIndex(emptyList(), emptyMap(), emptySet())
                 lineCache.evictAll()
                 refreshList()
                 return@withContext
             }
 
-            // ① 先只读尾部，让界面立刻出内容。
-            //    旧实现要等整份文件索引完才显示 —— 单文件放宽到 3MB/7MB 后就是十几秒的转圈。
-            if (fileSize > TAIL_BYTES) {
-                runCatching { readTail(file, fileSize) }.getOrNull()?.let { tail ->
+            // ① 尾部优先：打开即出内容，不必等整份（可能几十个分片）索引完
+            runCatching { LogDayIndexer.readTail(parts, TAIL_BYTES) }.getOrNull()?.let { tail ->
+                if (tail.offsets.isNotEmpty()) {
                     applyIndex(tail.offsets, tail.tags, tail.errorOffsets)
+                    _uiState.update { it.copy(truncated = false) }
                     refreshList()
                 }
             }
 
-            // ② 再建立完整索引：单次顺序扫描，零随机读
-            val builder = scanWholeFile(file, fileSize)
-            val allOffsets = builder.offsets()
-            val kept = if (allOffsets.size > maxLines) allOffsets.takeLast(maxLines) else allOffsets
-            val keptSet = kept.toHashSet()
-            applyIndex(
-                kept,
-                builder.tags().filterKeys { it in keptSet },
-                builder.errorOffsets().filterTo(HashSet()) { it in keptSet }
-            )
+            // ② 全量索引
+            val scope = this
+            val result = LogDayIndexer.scan(parts, SCAN_BUFFER_BYTES, maxLines) { scope.isActive }
+            ensureActive()
+            applyIndex(result.offsets, result.tags, result.errorOffsets)
+            _uiState.update { it.copy(truncated = result.truncated) }
             lineCache.evictAll()
             refreshList()
 
@@ -189,7 +320,7 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
             e.printStackTrace()
             // 这里刻意用 android.util.Log 再打一份到 logcat：模块 App 自身进程写不进模块日志目录
             // （那些文件的属主是宿主），日志页自己出问题时只能靠 logcat 排查。
-            android.util.Log.e("LogViewerVM", "索引日志失败: ${file.name}", e)
+            android.util.Log.e("LogViewerVM", "索引日志失败: ${parts.firstOrNull()?.file?.name}", e)
             val errorMsg = "索引失败: ${e.message}"
             Log.error(tag, errorMsg)
             withContext(Dispatchers.Main) {
@@ -197,65 +328,6 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
                 ToastUtil.showToast(getApplication(), errorMsg)
             }
         }
-    }
-
-    /** 尾部一次读入并索引的结果 */
-    private class IndexedChunk(
-        val offsets: List<Long>,
-        val tags: Map<Long, String>,
-        val errorOffsets: Set<Long>
-    )
-
-    /**
-     * 只读文件尾部 [TAIL_BYTES]，从第一个完整行开始索引。
-     *
-     * 起点可能落在半行中间（那半行在更早的位置），所以要先跳到缓冲区里的第一个换行之后。
-     *
-     * ⚠️ 刻意用**独立的** RandomAccessFile：与 [raf] 共用会把文件指针让给并发的逐行读取，
-     * 扫描就会提前撞到 EOF（2026-09-28 实测：1.2MB / 3436 行的文件只索引出 1229~1403 行，且每次不同）。
-     */
-    private fun readTail(file: File, fileSize: Long): IndexedChunk {
-        val start = maxOf(0L, fileSize - TAIL_BYTES)
-        val length = (fileSize - start).toInt()
-        val buffer = ByteArray(length)
-        RandomAccessFile(file, "r").use { tailRaf ->
-            tailRaf.seek(start)
-            tailRaf.readFully(buffer)
-        }
-
-        var from = 0
-        if (start > 0L) {
-            val newline = buffer.indexOfFirst { it == '\n'.code.toByte() }
-            if (newline < 0) return IndexedChunk(emptyList(), emptyMap(), emptySet())
-            from = newline + 1
-        }
-        val builder = LogIndexBuilder(start + from)
-        builder.feed(buffer, from, length - from)
-        builder.finish()
-        return IndexedChunk(builder.offsets(), builder.tags(), builder.errorOffsets())
-    }
-
-    /**
-     * 顺序读完整份文件做一遍索引。
-     *
-     * 声明成 [CoroutineScope] 扩展是为了能用 `ensureActive()` 响应取消；
-     * 用独立的 [FileInputStream] 读，避免与逐行读取争用同一个文件指针（原因见 [readTail]）。
-     */
-    private suspend fun CoroutineScope.scanWholeFile(file: File, fileSize: Long): LogIndexBuilder {
-        val builder = LogIndexBuilder(0L)
-        val buffer = ByteArray(SCAN_BUFFER_BYTES)
-        FileInputStream(file).use { stream ->
-            var readTotal = 0L
-            while (readTotal < fileSize) {
-                ensureActive()
-                val read = stream.read(buffer)
-                if (read <= 0) break
-                builder.feed(buffer, 0, read)
-                readTotal += read
-            }
-        }
-        builder.finish()
-        return builder
     }
 
     /** 用一次扫描的结果整体替换索引与偏移表，并刷新 tag/错误计数。 */
@@ -350,44 +422,34 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
         return line
     }
 
-    private fun readLineAt(offset: Long): String? {
-        val localRaf = raf ?: return null
+    /** 读一行；[offset] 是打包偏移（分片序号 + 文件内偏移），由 [LogSource] 解包读取 */
+    private fun readLineAt(offset: Long): String? = source?.readLineAt(offset)
 
-        return try {
-            synchronized(localRaf) {
-                localRaf.seek(offset)
-                val lineBytes = localRaf.readLine()?.toByteArray(StandardCharsets.ISO_8859_1)
-                lineBytes?.let { bytes -> String(bytes, StandardCharsets.UTF_8) }
-            }
-        } catch (e: Exception) {
-            Log.printStackTrace(tag, "readLineAt failed at offset $offset", e)
-            null
-        }
-    }
-
+    /**
+     * 监听活动文件的新增。
+     *
+     * ⚠️ 刻意**观察父目录**并按文件名过滤，而不是只观察文件本身：
+     * Android 10+ 按文件观察盯的是 inode，日志一旦滚动（活动文件被 rename 成 `bak/<name>-<日期>.i.log`）
+     * 就再也收不到事件 —— 表现为「滚动之后看不到新内容」。观察目录还能顺带感知重建的日志文件。
+     */
     private fun startFileObserver(path: String) {
         val file = File(path)
-        val parentPath = file.parent ?: return
+        val parent = file.parent ?: return
         fileObserver?.stopWatching()
-        val eventMask = FileObserver.MODIFY or FileObserver.CREATE
-        val observerFile = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) file else File(parentPath)
+        val eventMask = FileObserver.MODIFY or FileObserver.CREATE or FileObserver.MOVED_TO or FileObserver.DELETE
 
-        val onFileEvent: (String?) -> Unit = { p ->
-            val eventFileName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) null else p
-            if (eventFileName == null || eventFileName == file.name) {
-                // ✅ 触发防抖更新
-                triggerDebouncedUpdate()
-            }
+        val onEvent: (String?) -> Unit = { name ->
+            if (name == null || name == file.name) triggerDebouncedUpdate()
         }
 
         fileObserver = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            object : FileObserver(observerFile, eventMask) {
-                override fun onEvent(event: Int, p: String?) { onFileEvent(p) }
+            object : FileObserver(File(parent), eventMask) {
+                override fun onEvent(event: Int, p: String?) = onEvent(p)
             }
         } else {
             @Suppress("DEPRECATION")
-            object : FileObserver(observerFile.absolutePath, eventMask) {
-                override fun onEvent(event: Int, p: String?) { onFileEvent(p) }
+            object : FileObserver(parent, eventMask) {
+                override fun onEvent(event: Int, p: String?) = onEvent(p)
             }
         }
         fileObserver?.startWatching()
@@ -413,7 +475,15 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
                 when {
                     currentSize > lastSize -> appendNewLines(currentSize)
                     currentSize < lastSize -> {
-                        withContext(Dispatchers.Main) { loadLogs(path) }
+                        // 活动文件被清空或**滚动**（rename 成当天分片、并新建同名文件）：
+                        // 重新枚举当天分区，才能把新分片接进来
+                        withContext(Dispatchers.Main) {
+                            val state = _uiState.value
+                            if (state.logName.isNotEmpty() && state.currentDate.isNotEmpty()) {
+                                currentKey = null   // 清掉幂等守卫，强制重新加载
+                                openDay(state.logName, state.currentDate)
+                            }
+                        }
                     }
                 }
             }
@@ -428,7 +498,10 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private suspend fun appendNewLines(currentFileSize: Long) = withContext(Dispatchers.IO) {
-        val localRaf = raf ?: return@withContext
+        // 只有「今天」会走这里（历史是静态归档），活动文件是最后一个分区
+        val activePath = currentFilePath ?: return@withContext
+        val baseSeq = partitions.lastIndex
+        if (baseSeq < 0) return@withContext
         try {
             val startPosition = lastKnownFileSize.get()
 
@@ -437,10 +510,11 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
                 return@withContext
             }
 
-            // 一遍扫描新增字节：偏移、tag、错误行一起算出来，不再逐行回读文件
-            val builder = LogIndexBuilder(startPosition)
-            synchronized(localRaf) {
-                localRaf.seek(startPosition)
+            // 一遍扫描新增字节：偏移、tag、错误行一起算出来，不再逐行回读文件。
+            // 偏移要带上活动文件的基址（打包偏移 = 分片序号 + 文件内偏移），与索引阶段一致。
+            val builder = LogIndexBuilder(LogSource.baseOf(baseSeq) + startPosition)
+            RandomAccessFile(File(activePath), "r").use { appendRaf ->
+                appendRaf.seek(startPosition)
                 val readBuffer = ByteArray(SCAN_BUFFER_BYTES)
                 var currentOffset = startPosition
                 while (currentOffset < currentFileSize) {
@@ -448,7 +522,7 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
                     val remainingBytes = (currentFileSize - currentOffset).toInt()
                     val bytesToRead = minOf(readBuffer.size, remainingBytes)
                     if (bytesToRead <= 0) break
-                    val bytesRead = localRaf.read(readBuffer, 0, bytesToRead)
+                    val bytesRead = appendRaf.read(readBuffer, 0, bytesToRead)
                     if (bytesRead <= 0) break
                     builder.feed(readBuffer, 0, bytesRead)
                     currentOffset += bytesRead
@@ -515,6 +589,8 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun clearLogFile(context: Context) {
+        // 历史分片是滚动归档：清掉它等于毁掉排查依据，界面也不会给出这个入口
+        if (_uiState.value.isHistory) return
         val path = currentFilePath ?: return
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -536,15 +612,57 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun exportLogFile(context: Context) {
-        val path = currentFilePath ?: return
-        try {
-            val file = File(path)
-            if (!file.exists()) {
-                ToastUtil.showToast(context, "源文件不存在")
-                return
+    /**
+     * 导出当前这一天。
+     *
+     * 分片多或体积大时先返回一次确认（写进 uiState，由界面弹框），避免几十个分片、
+     * 数百 MB 的合并悄悄开始又失败。今天单分片时与旧的「导出文件」等价。
+     */
+    fun requestExport(context: Context) {
+        val parts = partitions
+        if (parts.isEmpty()) {
+            ToastUtil.showToast(context, "没有可导出的日志")
+            return
+        }
+        val totalBytes = parts.sumOf { it.file.length() }
+        if (parts.size > EXPORT_CONFIRM_SHARDS || totalBytes > EXPORT_CONFIRM_BYTES) {
+            _uiState.update {
+                it.copy(
+                    exportConfirm = true,
+                    exportSummary = "${parts.size} 个分片，共 ${formatSize(totalBytes)}"
+                )
             }
-            val exportFile = Files.exportFile(file, true)
+            return
+        }
+        exportLogFile(context)
+    }
+
+    /** 用户在确认框里点了「导出」 */
+    fun confirmExport(context: Context) {
+        _uiState.update { it.copy(exportConfirm = false, exportSummary = "") }
+        exportLogFile(context)
+    }
+
+    /** 取消导出 */
+    fun dismissExport() {
+        _uiState.update { it.copy(exportConfirm = false, exportSummary = "") }
+    }
+
+    fun exportLogFile(context: Context) {
+        val parts = partitions
+        if (parts.isEmpty()) {
+            ToastUtil.showToast(context, "没有可导出的日志")
+            return
+        }
+        try {
+            val state = _uiState.value
+            // 历史导出带上日期，避免不同天的同名文件互相覆盖
+            val baseName = if (state.isHistory && state.currentDate.isNotEmpty()) {
+                "${state.logName}-${state.currentDate}"
+            } else {
+                parts.last().file.nameWithoutExtension
+            }
+            val exportFile = Files.exportMerged(parts.map { it.file }, baseName, true)
             if (exportFile != null && exportFile.exists()) {
                 val msg = "${context.getString(R.string.file_exported)} ${exportFile.path}"
                 ToastUtil.showToast(context, msg)
@@ -555,6 +673,12 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
             Log.printStackTrace(tag, "Export error", e)
             ToastUtil.showToast(context, "导出异常: ${e.message}")
         }
+    }
+
+    private fun formatSize(bytes: Long): String = when {
+        bytes >= 1024 * 1024 -> String.format(Locale.US, "%.1fMB", bytes / 1024.0 / 1024.0)
+        bytes >= 1024 -> String.format(Locale.US, "%.0fKB", bytes / 1024.0)
+        else -> "${bytes}B"
     }
 
     private fun saveFontSize(size: Float) {
@@ -602,8 +726,9 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
     private fun closeFile() {
         try {
             // updateJob?.cancel()
-            raf?.close()
-            raf = null
+            source?.close()
+            source = null
+            partitions = emptyList()
             fileObserver?.stopWatching()
             fileObserver = null
         } catch (e: Exception) {

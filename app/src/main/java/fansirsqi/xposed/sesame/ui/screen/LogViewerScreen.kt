@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -39,6 +40,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FontDownload
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -59,6 +63,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Scaffold
@@ -133,6 +138,7 @@ fun LogViewerScreen(
 
     val focusRequester = remember { FocusRequester() }
     var showClearDialog by remember { mutableStateOf(false) }
+    var showDateMenu by remember { mutableStateOf(false) }
 
     // 拦截返回键
     BackHandler(enabled = isSearchActive) {
@@ -243,12 +249,69 @@ fun LogViewerScreen(
                         else {
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
+                                    // 分类名 + 可点的日期（今天 / 09-27），点开可切到最近 7 天里的任意一天
                                     Text(
-                                        File(filePath).name,
+                                        state.logLabel.ifEmpty { File(filePath).name },
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
+                                    Box {
+                                        TextButton(onClick = { showDateMenu = true }) {
+                                            Text(
+                                                text = when {
+                                                    state.currentDate.isEmpty() -> "--"
+                                                    state.isHistory -> state.currentDate.takeLast(5)
+                                                    else -> "今天"
+                                                },
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                            Icon(Icons.Default.ArrowDropDown, contentDescription = "选择日期")
+                                        }
+                                        DropdownMenu(
+                                            expanded = showDateMenu,
+                                            onDismissRequest = { showDateMenu = false }
+                                        ) {
+                                            if (state.availableDates.isEmpty()) {
+                                                DropdownMenuItem(
+                                                    text = { Text("暂无更早的日志") },
+                                                    enabled = false,
+                                                    onClick = {}
+                                                )
+                                            }
+                                            state.availableDates.forEach { date ->
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Text(
+                                                            if (date == state.todayKey) "今天 · ${date.takeLast(5)}"
+                                                            else date
+                                                        )
+                                                    },
+                                                    onClick = {
+                                                        showDateMenu = false
+                                                        viewModel.selectDate(date)
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                    val dateIdx = state.availableDates.indexOf(state.currentDate)
+                                    val canOlder = dateIdx in 0 until state.availableDates.lastIndex
+                                    val canNewer = dateIdx > 0
+                                    IconButton(
+                                        onClick = { viewModel.goToOlderDay() },
+                                        enabled = canOlder,
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(Icons.Default.ChevronLeft, contentDescription = "前一天")
+                                    }
+                                    IconButton(
+                                        onClick = { viewModel.goToNewerDay() },
+                                        enabled = canNewer,
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(Icons.Default.ChevronRight, contentDescription = "后一天")
+                                    }
                                     // ✨ 错误计数徽标
                                     if (state.errorCount > 0) {
                                         Spacer(modifier = Modifier.width(6.dp))
@@ -267,12 +330,24 @@ fun LogViewerScreen(
                                     state.selectedTag?.let { add("[${it}]") }
                                     if (state.showErrorOnly) add("仅错误")
                                 }.joinToString(" · ")
+                                val metaHint = buildList {
+                                    if (state.noData) add("该日期没有可读日志（可能已被清理）")
+                                    if (state.shardCount > 1) add("${state.shardCount} 个分片")
+                                    if (state.truncated) add("已截断，仅保留最新内容，搜索不覆盖更早的行")
+                                }.joinToString(" · ")
                                 Text(
-                                    if (state.isLoading) "Loading..."
-                                    else if (filterHint.isNotEmpty()) "${state.totalCount} lines · $filterHint"
-                                    else "${state.totalCount} lines",
+                                    text = when {
+                                        state.isLoading -> "Loading..."
+                                        state.noData -> metaHint
+                                        else -> buildString {
+                                            append("${state.totalCount} lines")
+                                            if (filterHint.isNotEmpty()) append(" · $filterHint")
+                                            if (metaHint.isNotEmpty()) append(" · $metaHint")
+                                        }
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = if (state.noData) MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -419,18 +494,21 @@ fun LogViewerScreen(
                                         }
                                         HorizontalDivider()
                                         DropdownMenuItem(
-                                            text = { Text("导出文件") },
-                                            onClick = { showMenu = false; viewModel.exportLogFile(context) },
+                                            text = { Text(if (state.isHistory) "导出本日日志" else "导出文件") },
+                                            onClick = { showMenu = false; viewModel.requestExport(context) },
                                             leadingIcon = { Icon(Icons.Default.Share, null) }
                                         )
-                                        DropdownMenuItem(
-                                            text = { Text("清空日志", color = MaterialTheme.colorScheme.error) },
-                                            onClick = {
-                                                showMenu = false
-                                                showClearDialog= true
-                                            },
-                                            leadingIcon = { Icon(Icons.Default.CleaningServices, null, tint = MaterialTheme.colorScheme.error) }
-                                        )
+                                        // 历史分片是滚动归档，只读：不给清空入口
+                                        if (!state.isHistory) {
+                                            DropdownMenuItem(
+                                                text = { Text("清空日志", color = MaterialTheme.colorScheme.error) },
+                                                onClick = {
+                                                    showMenu = false
+                                                    showClearDialog= true
+                                                },
+                                                leadingIcon = { Icon(Icons.Default.CleaningServices, null, tint = MaterialTheme.colorScheme.error) }
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -545,6 +623,16 @@ fun LogViewerScreen(
 
     }
     // ✨ 挂载通用确认弹窗
+    CommonAlertDialog(
+        showDialog = state.exportConfirm,
+        onDismissRequest = { viewModel.dismissExport() },
+        onConfirm = { viewModel.confirmExport(context) },
+        title = "导出整天日志？",
+        text = "这一天有 ${state.exportSummary}，合并导出可能需要一些时间与空间。",
+        confirmText = "导出",
+        dismissText = "取消"
+    )
+
     CommonAlertDialog(
         showDialog = showClearDialog,
         onDismissRequest = { showClearDialog = false },
