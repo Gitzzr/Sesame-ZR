@@ -12,8 +12,10 @@ import fansirsqi.xposed.sesame.R
 import fansirsqi.xposed.sesame.SesameApplication.Companion.PREFERENCES_KEY
 import fansirsqi.xposed.sesame.util.Files
 import fansirsqi.xposed.sesame.util.Log
+import fansirsqi.xposed.sesame.util.LogIndexBuilder
 import fansirsqi.xposed.sesame.util.ToastUtil
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
@@ -31,6 +33,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileInputStream
 import java.io.RandomAccessFile
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.AtomicLong
@@ -40,7 +43,8 @@ import java.util.concurrent.atomic.AtomicLong
  * 日志 UI 状态
  */
 data class LogUiState(
-    val mappingList: List<Int> = emptyList(),
+    /** 是否已有可显示的行（列表本身用 totalCount + 偏移表，不再为此建一份装箱 Int 列表） */
+    val hasContent: Boolean = false,
     val isLoading: Boolean = true,
     val isSearching: Boolean = false,
     val searchQuery: String = "",
@@ -87,13 +91,18 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
     private var displayLineOffsets: List<Long> = emptyList()
     private val lineCache = LruCache<Long, String>(200)
 
-    // ✨ tag 索引：行偏移 -> 模块 tag（首次扫描时提取 [tag] 前缀）
+    // ✨ tag 索引：行偏移 -> 模块 tag（扫描时顺便提取行首 [tag] 前缀）
     private val tagIndex = HashMap<Long, String>()
 
+    // ✨ 错误行偏移：扫描时顺便判定，替代「逐行回读文件数一遍」的老做法
+    private val errorOffsets = HashSet<Long>()
+
     companion object {
-        // 日志行内 [tag] 前缀提取正则：匹配行首时间戳后的首个 [xxx] 段
-        private val TAG_PATTERN = Regex("""^\d{2}日\s\d{2}:\d{2}:\d{2}\.\d{2,3}\s*\[([^\]]+)]""")
-        private val ERROR_MARKERS = listOf("error", "exception", "❌", "⚠️", "失败", "异常")
+        /** 首屏只读文件尾部这么多字节：够铺满几十屏，读一次就能立刻出内容 */
+        private const val TAIL_BYTES = 256 * 1024
+
+        /** 全量扫描的读缓冲 */
+        private const val SCAN_BUFFER_BYTES = 64 * 1024
     }
 
     // ✅ 使用 AtomicLong 保证线程安全
@@ -121,7 +130,7 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
 
         loadJob = viewModelScope.launch {
             closeFile()
-            _uiState.update { it.copy(isLoading = true, mappingList = emptyList(), totalCount = 0) }
+            _uiState.update { it.copy(isLoading = true, hasContent = false, totalCount = 0) }
 
             val file = File(path)
             if (!file.exists() || !file.canRead()) {
@@ -143,58 +152,32 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
 
             val fileSize = localRaf.length()
             lastKnownFileSize.set(fileSize)
-            // ✅ 如果文件大小为 0，直接清空并返回
             if (fileSize == 0L) {
-                synchronized(allLineOffsets) { allLineOffsets.clear() }
+                applyIndex(emptyList(), emptyMap(), emptySet())
                 lineCache.evictAll()
                 refreshList()
                 return@withContext
             }
 
-            // ✅ 优化:一次扫描同时完成计数和索引
-            val readBuffer = ByteArray(8192)
-            var currentOffset = 0L
-            var totalLines = 0L
-
-            localRaf.seek(0)
-
-            // 第一遍:快速扫描,只记录换行符位置
-            val allOffsets = mutableListOf<Long>()
-            allOffsets.add(0L) // 第一行从 0 开始
-
-            while (true) {
-                ensureActive()
-                val bytesRead = localRaf.read(readBuffer)
-                if (bytesRead == -1) break
-
-                for (i in 0 until bytesRead) {
-                    currentOffset++
-                    if (readBuffer[i] == '\n'.code.toByte()) {
-                        totalLines++
-                        // 记录下一行的起始位置
-                        if (currentOffset < fileSize) {
-                            allOffsets.add(currentOffset)
-                        }
-                    }
+            // ① 先只读尾部，让界面立刻出内容。
+            //    旧实现要等整份文件索引完才显示 —— 单文件放宽到 3MB/7MB 后就是十几秒的转圈。
+            if (fileSize > TAIL_BYTES) {
+                runCatching { readTail(file, fileSize) }.getOrNull()?.let { tail ->
+                    applyIndex(tail.offsets, tail.tags, tail.errorOffsets)
+                    refreshList()
                 }
             }
 
-            // ✅ 根据总行数决定保留哪些行
-            val finalOffsets = if (totalLines > maxLines) {
-                // 只保留最后 maxLines 行
-                allOffsets.takeLast(maxLines)
-            } else {
-                allOffsets
-            }
-
-            synchronized(allLineOffsets) {
-                allLineOffsets.clear()
-                allLineOffsets.addAll(finalOffsets)
-            }
-
-            // ✨ 构建 tag 索引 + 错误计数
-            rebuildTagIndex(finalOffsets)
-
+            // ② 再建立完整索引：单次顺序扫描，零随机读
+            val builder = scanWholeFile(file, fileSize)
+            val allOffsets = builder.offsets()
+            val kept = if (allOffsets.size > maxLines) allOffsets.takeLast(maxLines) else allOffsets
+            val keptSet = kept.toHashSet()
+            applyIndex(
+                kept,
+                builder.tags().filterKeys { it in keptSet },
+                builder.errorOffsets().filterTo(HashSet()) { it in keptSet }
+            )
             lineCache.evictAll()
             refreshList()
 
@@ -204,6 +187,9 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
             throw e // 重新抛出让协程框架处理
         } catch (e: Exception) {
             e.printStackTrace()
+            // 这里刻意用 android.util.Log 再打一份到 logcat：模块 App 自身进程写不进模块日志目录
+            // （那些文件的属主是宿主），日志页自己出问题时只能靠 logcat 排查。
+            android.util.Log.e("LogViewerVM", "索引日志失败: ${file.name}", e)
             val errorMsg = "索引失败: ${e.message}"
             Log.error(tag, errorMsg)
             withContext(Dispatchers.Main) {
@@ -213,12 +199,104 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    /** 尾部一次读入并索引的结果 */
+    private class IndexedChunk(
+        val offsets: List<Long>,
+        val tags: Map<Long, String>,
+        val errorOffsets: Set<Long>
+    )
+
+    /**
+     * 只读文件尾部 [TAIL_BYTES]，从第一个完整行开始索引。
+     *
+     * 起点可能落在半行中间（那半行在更早的位置），所以要先跳到缓冲区里的第一个换行之后。
+     *
+     * ⚠️ 刻意用**独立的** RandomAccessFile：与 [raf] 共用会把文件指针让给并发的逐行读取，
+     * 扫描就会提前撞到 EOF（2026-09-28 实测：1.2MB / 3436 行的文件只索引出 1229~1403 行，且每次不同）。
+     */
+    private fun readTail(file: File, fileSize: Long): IndexedChunk {
+        val start = maxOf(0L, fileSize - TAIL_BYTES)
+        val length = (fileSize - start).toInt()
+        val buffer = ByteArray(length)
+        RandomAccessFile(file, "r").use { tailRaf ->
+            tailRaf.seek(start)
+            tailRaf.readFully(buffer)
+        }
+
+        var from = 0
+        if (start > 0L) {
+            val newline = buffer.indexOfFirst { it == '\n'.code.toByte() }
+            if (newline < 0) return IndexedChunk(emptyList(), emptyMap(), emptySet())
+            from = newline + 1
+        }
+        val builder = LogIndexBuilder(start + from)
+        builder.feed(buffer, from, length - from)
+        builder.finish()
+        return IndexedChunk(builder.offsets(), builder.tags(), builder.errorOffsets())
+    }
+
+    /**
+     * 顺序读完整份文件做一遍索引。
+     *
+     * 声明成 [CoroutineScope] 扩展是为了能用 `ensureActive()` 响应取消；
+     * 用独立的 [FileInputStream] 读，避免与逐行读取争用同一个文件指针（原因见 [readTail]）。
+     */
+    private suspend fun CoroutineScope.scanWholeFile(file: File, fileSize: Long): LogIndexBuilder {
+        val builder = LogIndexBuilder(0L)
+        val buffer = ByteArray(SCAN_BUFFER_BYTES)
+        FileInputStream(file).use { stream ->
+            var readTotal = 0L
+            while (readTotal < fileSize) {
+                ensureActive()
+                val read = stream.read(buffer)
+                if (read <= 0) break
+                builder.feed(buffer, 0, read)
+                readTotal += read
+            }
+        }
+        builder.finish()
+        return builder
+    }
+
+    /** 用一次扫描的结果整体替换索引与偏移表，并刷新 tag/错误计数。 */
+    private suspend fun applyIndex(
+        offsets: List<Long>,
+        tags: Map<Long, String>,
+        errors: Set<Long>
+    ) {
+        synchronized(allLineOffsets) {
+            allLineOffsets.clear()
+            allLineOffsets.addAll(offsets)
+        }
+        synchronized(tagIndex) {
+            tagIndex.clear()
+            tagIndex.putAll(tags)
+        }
+        synchronized(errorOffsets) {
+            errorOffsets.clear()
+            errorOffsets.addAll(errors)
+        }
+        updateIndexMeta()
+    }
+
+    /** 把 tag 索引与错误行偏移折算成界面用的 tag 列表和错误计数。 */
+    private suspend fun updateIndexMeta() {
+        val tags = synchronized(tagIndex) {
+            tagIndex.values.filter { it.isNotEmpty() }.distinct().sorted()
+        }
+        val errorCount = synchronized(errorOffsets) { errorOffsets.size }
+        _uiState.update { it.copy(availableTags = tags, errorCount = errorCount) }
+    }
+
     private suspend fun refreshList() {
         val query = _uiState.value.searchQuery.trim()
         val selectedTag = _uiState.value.selectedTag
         val errorOnly = _uiState.value.showErrorOnly
 
         val resultOffsets = withContext(Dispatchers.IO) {
+            // 「仅看错误」用建索引时顺手记下的错误行偏移，不再逐行回读文件
+            val errorSnapshot =
+                if (errorOnly) synchronized(errorOffsets) { HashSet(errorOffsets) } else null
             synchronized(allLineOffsets) {
                 if (query.isEmpty() && selectedTag == null && !errorOnly) {
                     ArrayList(allLineOffsets)
@@ -229,14 +307,8 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
                         if (selectedTag != null && tagIndex[offset] != selectedTag) {
                             return@filter false
                         }
-                        if (errorOnly) {
-                            val cached = lineCache.get(offset)
-                            val line = cached ?: readLineAt(offset)
-                            if (line != null && cached == null) lineCache.put(offset, line)
-                            val isError = line?.let { l ->
-                                ERROR_MARKERS.any { l.contains(it, ignoreCase = true) }
-                            } ?: false
-                            if (!isError) return@filter false
+                        if (errorSnapshot != null && offset !in errorSnapshot) {
+                            return@filter false
                         }
                         if (query.isEmpty()) {
                             return@filter true
@@ -249,11 +321,10 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
         }
 
         displayLineOffsets = resultOffsets
-        val newMapping = List(resultOffsets.size) { it }
 
         _uiState.update {
             it.copy(
-                mappingList = newMapping,
+                hasContent = resultOffsets.isNotEmpty(),
                 totalCount = resultOffsets.size,
                 isLoading = false,
                 isSearching = false
@@ -366,92 +437,49 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
                 return@withContext
             }
 
-            val newOffsets = mutableListOf<Long>()
-            val readBuffer = ByteArray(8192) // 8KB 缓冲区
-
+            // 一遍扫描新增字节：偏移、tag、错误行一起算出来，不再逐行回读文件
+            val builder = LogIndexBuilder(startPosition)
             synchronized(localRaf) {
                 localRaf.seek(startPosition)
+                val readBuffer = ByteArray(SCAN_BUFFER_BYTES)
                 var currentOffset = startPosition
-                // ✅ 读取新增的内容，找到所有换行符位置
                 while (currentOffset < currentFileSize) {
                     ensureActive()
                     val remainingBytes = (currentFileSize - currentOffset).toInt()
                     val bytesToRead = minOf(readBuffer.size, remainingBytes)
                     if (bytesToRead <= 0) break
                     val bytesRead = localRaf.read(readBuffer, 0, bytesToRead)
-                    if (bytesRead == -1) break
-                    // ✅ 遍历读取的字节，找到换行符
-                    for (i in 0 until bytesRead) {
-                        currentOffset++
-                        if (readBuffer[i] == '\n'.code.toByte()) {
-                            // 记录下一行的起始位置
-                            if (currentOffset < currentFileSize) {
-                                newOffsets.add(currentOffset)
-                            }
-                        }
-                    }
+                    if (bytesRead <= 0) break
+                    builder.feed(readBuffer, 0, bytesRead)
+                    currentOffset += bytesRead
                 }
             }
-            
-            if (newOffsets.isNotEmpty()) {
-                // ✅ 先更新文件大小,再修改列表
-                lastKnownFileSize.set(currentFileSize)
-                synchronized(allLineOffsets) {
-                    allLineOffsets.addAll(newOffsets)
-                    while (allLineOffsets.size > maxLines) {
-                        allLineOffsets.removeAt(0)
-                    }
+            // 刻意不调 builder.finish()：末尾可能是还没写完的半行，
+            // 留到下次追加时再记账，避免同一行的起始偏移被记两次
+
+            val addedOffsets = builder.offsets()
+            lastKnownFileSize.set(currentFileSize)
+            if (addedOffsets.isEmpty()) return@withContext
+
+            synchronized(allLineOffsets) {
+                allLineOffsets.addAll(addedOffsets)
+                // 超上限的旧行连索引一起丢，避免索引无限膨胀
+                while (allLineOffsets.size > maxLines) {
+                    val dropped = allLineOffsets.removeAt(0)
+                    synchronized(tagIndex) { tagIndex.remove(dropped) }
+                    synchronized(errorOffsets) { errorOffsets.remove(dropped) }
                 }
-                rebuildTagIndex(allLineOffsets.toList())
-                refreshList()
             }
+            synchronized(tagIndex) { tagIndex.putAll(builder.tags()) }
+            synchronized(errorOffsets) { errorOffsets.addAll(builder.errorOffsets()) }
+            updateIndexMeta()
+            refreshList()
         } catch (e: CancellationException) {
             // ✅ 协程取消异常不记录日志，直接静默处理
             // 这是正常的协程生命周期管理，不需要打印错误
             throw e // 重新抛出让协程框架处理
         } catch (e: Exception) {
             Log.printStackTrace(tag, "appendNewLines failed", e)
-        }
-    }
-
-    /**
-     * ✨ 扫描行偏移列表，提取每行 [tag] 前缀建立分组索引，并统计错误行数。
-     * 首次全量加载 O(n) 回读；增量追加时只读新增行。
-     */
-    private suspend fun rebuildTagIndex(offsets: List<Long>) = withContext(Dispatchers.IO) {
-        try {
-            synchronized(tagIndex) {
-                // 增量场景：只处理尚未索引的行
-                val pending = offsets.filter { it !in tagIndex }
-                for (offset in pending) {
-                    val line = readLineAt(offset)
-                    val tag = line?.let { TAG_PATTERN.find(it)?.groupValues?.get(1) }
-                    tagIndex[offset] = tag ?: ""
-                }
-                // 裁剪：超出 maxLines 的旧行索引同步移除
-                if (tagIndex.size > offsets.size) {
-                    val valid = offsets.toHashSet()
-                    tagIndex.keys.retainAll(valid)
-                }
-            }
-
-            val tags = synchronized(tagIndex) {
-                tagIndex.values.filter { it.isNotEmpty() }.distinct().sorted()
-            }
-            val errorCount = withContext(Dispatchers.IO) {
-                synchronized(allLineOffsets) {
-                    allLineOffsets.count { offset ->
-                        ensureActive()
-                        val line = readLineAt(offset) ?: return@count false
-                        ERROR_MARKERS.any { line.contains(it, ignoreCase = true) }
-                    }
-                }
-            }
-            _uiState.update { it.copy(availableTags = tags, errorCount = errorCount) }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.printStackTrace(tag, "rebuildTagIndex failed", e)
         }
     }
 
@@ -566,7 +594,7 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
         if (_uiState.value.autoScroll == enabled) return
         _uiState.update { it.copy(autoScroll = enabled) }
         if (enabled) viewModelScope.launch {
-            val size = _uiState.value.mappingList.size
+            val size = _uiState.value.totalCount
             if (size > 0) _scrollEvent.send(size - 1)
         }
     }
