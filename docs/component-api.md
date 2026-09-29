@@ -546,7 +546,63 @@ class LogIndexBuilder(startOffset: Long = 0L) {
 
 ---
 
-## H. 组件约定与坑
+## H. 任务健康状态机（`task/TaskHealth*`）
+
+回答「任务此刻到底在不在正常跑」。**宿主进程写事件、读的一方现算状态**，
+所以 `task_health.json` 里存的是**时间戳与计数**，不是结论。
+
+### H1. `TaskHealthPolicy` —— 纯判定（可单测）
+
+```kotlin
+TaskHealthPolicy.evaluate(snapshot, now, stallTimeoutMs): TaskHealthState
+TaskHealthPolicy.labelOf(state): String          // 界面/日志共用的中文短标签
+TaskHealthPolicy.describe(snapshot, state, now): String   // 一行说明
+```
+
+| 常量 | 值 | 用途 |
+| --- | --- | --- |
+| `DEFAULT_STALL_TIMEOUT_MINUTES` | 5 | 无进展多久算卡住 |
+| `MIN/MAX_STALL_TIMEOUT_MINUTES` | 1 / 120 | 夹取边界，`normalizeTimeoutMinutes` |
+
+判定优先级：**被暂停 > 卡住 > 记录的状态**。被暂停时不能报卡住 —— 前者等自愈、后者要人工验证。
+「卡住」只看**无进展**（`max(lastProgressAt, lastStartAt)` 距今超阈值），不看有没有失败。
+
+### H2. `TaskHealthMonitor` —— 宿主侧入口
+
+```kotlin
+onStart(id, detail)      // 进入进行中
+onProgress(id, detail)   // 有进展（按好友收能量时逐人调用，落盘节流 3s）
+onWaiting(id, detail)    // 等能量成熟 —— 正常状态，不算卡住
+onSuccess(id, detail)    // 成功，清零 consecutiveFailures
+onFailure(id, detail)    // 失败，累加 consecutiveFailures
+onBlocked(reason)        // 全局：被离线/安全验证挡住
+onBlockedCleared()
+readAll(userId, stallTimeoutMinutes, now): List<TaskHealthSnapshot>  // 界面用
+```
+
+| ID | 显示名 | 埋点位置 |
+| --- | --- | --- |
+| `forest.main` | 森林主任务 | `AntForest` 一轮的开始/成功/失败 |
+| `forest.collect` | 收能量 | `AntForest.collectEnergy` |
+| `forest.waiting` | 蹲点收取 | `EnergyWaitingManager` |
+
+落盘：`config/<uid>/task_health.json`，展示顺序由 `ORDER` 固定，界面不用再排。
+
+### H3. 两个易踩的坑
+
+1. **模块 App 进程里 `UserMap.currentUid` 是空的**（没有支付宝登录态），直接按 uid 拼路径会读到空文件、
+   页面永远显示「还没有记录」—— `readAll` 因此有 `resolveHealthFile` 兜底：扫 `config/` 下的账号目录，
+   取**最近改过**的那份。
+2. **`Status.hasFlagToday` 不能用来做跨天核对**：它的 `flagList` 跨天会自己清，状态机的文件不会。
+   另有一层：**宿主进程重启后内存是空的**，直接落盘会把已跑完的状态抹成「未开始」——
+   所以 `syncDailyState(now)` 在每次写盘前先把磁盘上属于**今天**（按记录里的最新时间戳判定）的记录接进内存，
+   接进来的接着用、不是今天的丢弃。同一个自然日内只读一次盘。
+
+> 只观测不干预：这里不做重试 / 取消 / 重启。判定错了最多显示不准，不会把正常任务打断。
+
+---
+
+## I. 组件约定与坑
 
 1. **`SettingsComponents.kt` 缺 `package` 行** —— `SettingsSwitchItem` 落在默认包，与同目录其他文件不一致，建议补齐。
 2. **`ListDialog` 用静态字段存对话框引用**（`static AlertDialog listDialog`），是单例式实现，**同一时刻只能开一个**。

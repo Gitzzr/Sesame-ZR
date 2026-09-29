@@ -481,6 +481,10 @@ class ApplicationHook {
             if (value) {
                 offlineSince = System.currentTimeMillis()
                 Log.record(TAG, "⛔ 已进入离线：后续请求会被本地门控拦下，将按 2/5/15/30 分钟节奏自动探测恢复")
+                // 任务状态机：把「被暂停」与「卡住」区分开
+                fansirsqi.xposed.sesame.task.TaskHealthMonitor.onBlocked(
+                    if (RequestManager.isVerificationPaused()) "安全验证暂停中" else "离线中"
+                )
                 startOfflineProbe(1)
             } else {
                 // offlineSince == 0 说明不是「我们置的离线」（例如进程刚初始化），不必打解除日志
@@ -490,6 +494,7 @@ class ApplicationHook {
                 }
                 offlineSince = 0L
                 // 离线期间被搁置的蹲点任务就地恢复，不必等下一轮
+                fansirsqi.xposed.sesame.task.TaskHealthMonitor.onBlockedCleared()
                 runCatching { fansirsqi.xposed.sesame.task.antForest.EnergyWaitingManager.onOfflineCleared() }
             }
         }

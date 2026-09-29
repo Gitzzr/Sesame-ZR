@@ -175,6 +175,22 @@ StopExecutionException: Your project path contains non-ASCII characters.
 - [ ] 小米 17 每轮主任务约 540 秒、逼近 10 分钟超时（当天 1 次 timedOut）：是否专治耗时大户
       （6 秒拼手速 / 会员 / 运动）
 
+### P1-7 任务健康状态机的实机回归（🆕 2026-09-29）
+
+代码、单测与 Redmi 验证均已完成，设计见
+[`docs/superpowers/specs/2026-09-29-task-health-monitor-design.md`](docs/superpowers/specs/2026-09-29-task-health-monitor-design.md)
+与 [`docs/architecture.md` §12](docs/architecture.md)。
+
+- [x] Redmi（USB）验证：`task_health.json` 三项齐全；日志 `任务状态：森林主任务 未开始 → 进行中 … → 正常`；
+      主页卡片渲染出「森林主任务 / 收能量 / 蹲点收取」三行及状态标签
+- [x] 构造异常数据验证三态：卡住（已 20 分钟无进展）/ 失败（连续失败 2 次）/ 已暂停（当前网络不可用），
+      标题右侧变「⚠ 3 项需关注」
+- [ ] **小米 17 上验证**（主设备，无线 ADB 常掉，需重连后再试）
+- [ ] **等下一次真实「不动了」**，确认「卡住 · 已 N 分钟无进展」能先于人工排查指出方向，
+      并确认它和「已暂停」不会混淆
+- [ ] 阈值 5 分钟是否合适：慢任务（主轮约 540 秒）会不会被误判成卡住，
+      若误判频繁则按 `taskStallTimeoutMinutes` 上调
+
 ### P1-5 任务执行统计落盘的实机回归
 
 设计稿与实施记录见 [`docs/superpowers/plans/2026-09-23-task-statistics.md`](docs/superpowers/plans/2026-09-23-task-statistics.md)。
@@ -323,6 +339,7 @@ StopExecutionException: Your project path contains non-ASCII characters.
 | `2026-09-21-verification-pause-stuck` | 安全验证暂停卡死修复：1009 不再误判为需人工验证、暂停标志加 30 分钟 TTL、通知与支付宝首页确认框新增「跳过并恢复」、正式包接收器注册修复 | 代码已合入（PR #3，CI 全绿）。⚠️ **计划勾选未回填**：实为 3 勾 / 10 未勾 —— 2 条单测项已有用例，**2 条至今无单测且不可直接单测**（令牌校验 / 无标志空转，需先抽 Policy；其中 token 校验那条的预期已被 fail-closed 实现推翻，详见该计划 §十一），实机项见 P1-1 |
 | `2026-09-23-account-preset` | 账号档位（大号 / 小号）一键切换 + 好友名单逐项功能勾选 | K50 已验，小米 17 待验，见 P1-3 / P1-4 |
 | `2026-09-23-task-statistics` | 任务执行统计结构化落盘：按账号按日累积 `statistics.json`，保留 30 天 | 代码 / 单测 / CI 全绿（PR #5 已合入），实机待验见 P1-5 |
+| `2026-09-29-task-health-monitor` | 任务健康状态机：主页卡片显示森林主任务 / 收能量 / 蹲点收取的当前状态，卡住报「已 N 分钟无进展」 | 代码 / 单测 / Redmi 实机全绿，小米 17 待验见 P1-7 |
 
 `2026-09-05` 已完成的代码侧条目（逐条摘自实施记录）：
 
@@ -356,6 +373,7 @@ StopExecutionException: Your project path contains non-ASCII characters.
 | ~~🟡 P2-7~~ ✅ | ~~`1009` 业务拒绝被当作「网络错误」重试 8 次~~ 已修（PR #25，`ServerBusyPolicy`） | — | `NewRpcBridge` 判定分支 |
 | 🟠 P1-6 | 离线自愈与「一天一次」的实机回归 | 真机 / 等下一次真实离线 | 无代码变更，纯验证 |
 | 🟠 P1-6b | 「一天一次」第三批口径（含 C1 退避、D1 剩余次数） | **需要用户逐条拍板** | `AntFarm` / `AntOcean` / `ChouChouLe` 等 |
+| 🟠 P1-7 | 任务健康状态机实机回归（Redmi 已验、小米17 待验） | 小米17 无线 ADB / 下一次真实卡住 | 无代码变更，纯验证 |
 | 🟠 P1-6c | `checkInterval` 50 分钟是否调短（受轮次耗时 540 秒约束） | **需要用户决定** | 配置项，无代码变更 |
 | 🟡 P2-8 | 启动期 `主动调用获取授权码失败`（宿主侧接口不兼容，非已修的 NPE） | 需确认支付宝版本 | 无或 1 处调用 |
 | ~~🟢 P2-9~~ ✅ | ~~加饭卡失败原因已分类 + 30 分钟冷却~~ 已验证：44 → 6 次 | — | `AntFarm` 已改 |

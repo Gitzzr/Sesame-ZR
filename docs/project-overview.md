@@ -178,6 +178,7 @@ Sesame-ZR/
 | 让 AI 快速上手 / 知道硬规则 | [`../AGENTS.md`](../AGENTS.md) |
 | 了解项目定位与结构 | 本文件 |
 | 理解架构与数据流 | [`architecture.md`](architecture.md) |
+| 看任务此刻有没有卡住（任务状态机） | [`architecture.md` §12](architecture.md) |
 | 知道每个设置项是干什么的 | [`user-guide.md`](user-guide.md) |
 | 搭环境、跑命令、回归 | [`development.md`](development.md) |
 | 改界面 / 视觉规范 | [`../DESIGN.md`](../DESIGN.md) |
