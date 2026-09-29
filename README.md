@@ -2,14 +2,14 @@
 
 [![PR Check](https://github.com/Gitzzr/Sesame-ZR/actions/workflows/ci.yml/badge.svg)](https://github.com/Gitzzr/Sesame-ZR/actions/workflows/ci.yml)
 
-一个 **Android 端的 libxposed 模块**：被框架加载进宿主 App 进程后，研究并复用宿主自身的 RPC 通道，
-把一批重复性的日常操作编排成可配置的任务。
+一个 **Android 端的 libxposed 模块**：由框架加载进宿主 App 进程后，研究宿主内部的 RPC 调用链，
+并把一批周期性、可枚举的重复操作编排成可配置的任务。
 
-仓库把「支付宝」及其内置的蚂蚁森林 / 小鸡庄园 / 神奇海洋 / 新村 / 会员等**作为练习对象**——
-它们恰好提供了一个足够复杂的真实环境：私有 RPC 协议、多版本接口的兼容、Token 生命周期、
-限速与熔断、跨进程状态和 UI 配置同步，这些都是教科书之外的题目。
+练习场景取自宿主应用内置的日常任务。这类场景恰好提供了足够复杂的真实环境：
+内部 RPC 协议、多版本接口兼容、Token 生命周期、限速与熔断、跨进程状态与配置同步，
+都是教科书之外的题目。
 
-> 本项目用于**移动端逆向与框架技术的学习、研究与交流**，代码以 GPL-3.0 开放。
+> 本项目用于**移动端框架技术的学习、研究与交流**，代码以 GPL-3.0 开放。
 > 详细的职责边界见文末 [行为边界](#行为边界)。
 
 ---
@@ -37,7 +37,7 @@
 | --- | --- |
 | 框架接口 | libxposed API 102（`minApiVersion=101` / `targetApiVersion=102` / `staticScope=true`） |
 | 支持范围 | 仅现代 API 入口；旧版 API 82/100 的兼容层与 `xposed_init` 已移除 |
-| 作用域 | 只有 `com.eg.android.AlipayGphone` |
+| 作用域 | 仅一个宿主包名（在模块元数据中声明，此处不列出） |
 | 包名 | `fansirsqi.xposed.sesame`（同时是 namespace 与 applicationId） |
 | 语言 | Kotlin 为主（275 个 `.kt`）+ Java 兼容层（96 个 `.java`） |
 | 编译目标 | `compileSdk 37` / `minSdk 26`（Android 8.0）/ `targetSdk 36` |
@@ -47,7 +47,7 @@
 运行时形态如下：
 
 ```text
-【宿主进程：com.eg.android.AlipayGphone】
+【宿主 App 进程（被注入的目标）】
 
   Xposed / LSPosed 框架
         │  onModuleLoaded / onPackageReady
@@ -84,7 +84,7 @@
 | 层 | 目录 | 职责 |
 | --- | --- | --- |
 | 注入与运行时 | `hook/modern/` | `HookEntry`、`ModernXposedRuntime`（`XposedInterface` 单例）、`XposedEnv` |
-| 编排 | `hook/` | `ApplicationHook`（Token / RPC / 保活 / 定时 / HTTP 服务） |
+| 编排 | `hook/` | `ApplicationHook`（Token / RPC / 调度 / 进程存活 / HTTP 服务） |
 | RPC | `hook/RequestManager.kt`、`hook/rpc/bridge/` | 统一入口、发送前门禁、熔断恢复、接口级限频、新旧桥接 |
 | 任务调度 | `task/TaskRunner.kt`（内含 `CoroutineTaskRunner`）、`task/ModelTask.kt` | 纯协程的并发调度；任务基类同时是配置单元与执行单元 |
 | 业务逻辑 | `task/<业务域>/` | 16 个域；每个域通常配 `<Domain>RpcCall.java` + `*Policy.kt` |
@@ -101,7 +101,7 @@
 所有 hook 统一经 `ModernXposedRuntime.hook(...)` / `replaceWithConstant(...)`，
 由它设置 `ExceptionMode.PROTECTIVE`（hook 自身的异常不至于拖垮宿主），
 并把调用压成 `HookInvocation`（`executable` / `thisObject` / `initialArgs` / `result` / `proceedCall`）。
-绕过这层直接调 libxposed，就会丢掉这两层保护——仓库里有 `Libxposed102MigrationTest` 守着这条约定。
+不经过这层直接调 libxposed，就会丢掉这两层保护——仓库里有 `Libxposed102MigrationTest` 守着这条约定。
 
 ### 2. RPC 不是一个函数，是一条带状态的链路
 
@@ -167,7 +167,7 @@ Sesame-ZR/
 │   ├── libs/                     # libxposed API 102 的 aar
 │   └── src/
 │       ├── main/java/fansirsqi/xposed/sesame/
-│       │   ├── hook/             # 注入、RPC 链路、保活、HTTP 服务、Token
+│       │   ├── hook/             # 注入、RPC 链路、调度与进程存活、HTTP 服务、Token
 │       │   ├── task/             # 业务编排（按域分目录）
 │       │   ├── model/            # 设置项 schema
 │       │   ├── ui/               # 两套 UI + 主题 + ViewModel
@@ -177,7 +177,7 @@ Sesame-ZR/
 │       └── test/                 # java（Kotlin/JUnit 4）、js（node:test）
 ├── docs/                         # 说明与设计文档
 │   └── superpowers/              # specs（当前设计）/ plans（实施过程）
-├── serve-debug/                  # Python 抓包 / 调试台（FastAPI）
+├── serve-debug/                  # Python 调试台（FastAPI，接收 Hook 转发数据）
 ├── changelog.d/                  # CHANGELOG 待汇总片段
 └── scripts/changelog_fragments.py
 ```
@@ -244,8 +244,8 @@ PR 门禁包含：
 
 使用时请注意：
 
-- 本项目仅用于**自有账号**下的操作与技术研究。使用时请遵守所在地区法律法规、以及目标平台的用户协议与服务条款。
-- 项目与支付宝、蚂蚁集团及其各业务线**没有任何隶属、合作或授权关系**；相关名称、商标归各自权利人所有。
+- 本项目仅用于**自有账号**下的操作与技术研究。使用时请遵守所在地区法律法规，以及目标应用的开发者协议与服务条款。
+- 本项目与目标应用及其运营方**没有任何隶属、合作或授权关系**；文中涉及的产品名称、商标归各自权利人所有。
 - 仓库不提供现成的二进制分发、群组或任何形式的推广；不鼓励、也不引导任何违反平台规则的使用方式。
 - 因使用、修改或二次分发本仓库代码所产生的后果，由使用者自行承担。
 
