@@ -369,6 +369,11 @@ object EnergyWaitingManager {
      * 核心原则：不提前收取，严格按时机执行
      */
     private fun startPreciseWaitingCoroutine(task: WaitingTask) {
+        // 任务状态机：进入等待（等能量成熟）—— 等待本身是正常状态，不算卡住
+        fansirsqi.xposed.sesame.task.TaskHealthMonitor.onWaiting(
+            fansirsqi.xposed.sesame.task.TaskHealthMonitor.ID_WAITING,
+            "${waitingTasks.size} 个待收 · [${task.userName}]"
+        )
         val job = managerScope.launch(start = CoroutineStart.LAZY) {
             try {
                 val currentTime = System.currentTimeMillis()
@@ -633,6 +638,10 @@ object EnergyWaitingManager {
                 when (EnergyWaitingResultPolicy.decide(result)) {
                     WaitingCollectDecision.REMOVE_COMPLETE -> {
                         Log.record(TAG,"✅ 蹲点收取[${task.getUserTypeTag()}${task.userName}]成功${result.energyCount}g(耗时${executeTime}ms)")
+                        fansirsqi.xposed.sesame.task.TaskHealthMonitor.onSuccess(
+                            fansirsqi.xposed.sesame.task.TaskHealthMonitor.ID_WAITING,
+                            "收取 ${result.energyCount}g · [${task.userName}]"
+                        )
                         waitingTasks.remove(task.taskId) // 成功后移除任务
                         EnergyWaitingPersistence.saveTasks(waitingTasks) // 保存更新
                     }
@@ -643,6 +652,10 @@ object EnergyWaitingManager {
                         )
                         waitingTasks.remove(task.taskId)
                         EnergyWaitingPersistence.saveTasks(waitingTasks)
+                        fansirsqi.xposed.sesame.task.TaskHealthMonitor.onProgress(
+                            fansirsqi.xposed.sesame.task.TaskHealthMonitor.ID_WAITING,
+                            "已终止：${result.message}"
+                        )
                     }
                     WaitingCollectDecision.RETRY -> {
                         val resultType = if (result.success) "返回0能量" else "失败"
@@ -666,6 +679,10 @@ object EnergyWaitingManager {
                             Log.record(
                                 TAG,
                                 "  → ${retryDelay / 1000}秒后重试(${retryTask.retryCount}/${task.maxRetries})"
+                            )
+                            fansirsqi.xposed.sesame.task.TaskHealthMonitor.onProgress(
+                                fansirsqi.xposed.sesame.task.TaskHealthMonitor.ID_WAITING,
+                                "重试 ${retryTask.retryCount}/${task.maxRetries} · [${task.userName}]"
                             )
                             managerScope.launch {
                                 delay(retryDelay)

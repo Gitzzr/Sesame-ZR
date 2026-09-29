@@ -124,7 +124,7 @@ Windows 下把 `./gradlew` 换成 `./gradlew.bat`。完整说明见 [`docs/devel
 | `DESIGN.md` | 视觉规则：Compose 主题 + Web 主题、色彩/字体/间距/圆角 | 根目录 |
 | `TODO.md` | 当前任务、优先级、开发进度 | 根目录 |
 | [`docs/project-overview.md`](docs/project-overview.md) | 项目整体说明：定位、能力、技术栈、目录结构 | docs/ |
-| [`docs/architecture.md`](docs/architecture.md) | 架构与数据流：注入链路、RPC 链路、任务调度、配置同步 | docs/ |
+| [`docs/architecture.md`](docs/architecture.md) | 架构与数据流：注入链路、RPC 链路、任务调度、配置同步、**离线自愈**、**任务健康状态机** | docs/ |
 | [`docs/user-guide.md`](docs/user-guide.md) | 面向使用者的功能说明与设置项含义 | docs/ |
 | [`docs/development.md`](docs/development.md) | 开发方式、命令、回归清单、常见故障 | docs/ |
 | [`docs/component-api.md`](docs/component-api.md) | 组件与对外 API：Compose 组件、Web JS 合同、HTTP 接口、ModelField | docs/ |

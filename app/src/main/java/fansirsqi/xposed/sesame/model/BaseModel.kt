@@ -48,6 +48,7 @@ class BaseModel : Model() {
         modelFields.addField(waitWhenException) //异常发生时的等待时间
         modelFields.addField(errNotify) //异常通知开关
         modelFields.addField(setMaxErrorCount) //异常次数阈值
+        modelFields.addField(taskStallTimeoutMinutes) //任务无进展判定为卡住的阈值
         modelFields.addField(newRpc) //是否启用新接口
 
         if (BuildConfig.DEBUG) {
@@ -161,6 +162,17 @@ class BaseModel : Model() {
 
         @Getter
         val setMaxErrorCount: IntegerModelField = IntegerModelField("setMaxErrorCount", "异常次数阈值", 8)
+
+        /**
+         * 任务状态机：进行中的任务多久没有任何进展就判为「卡住」（分钟）。
+         *
+         * 只看「无进展」而不是「有没有失败」—— 卡住的特征恰恰是既没失败也没进展，
+         * 这类沉默的停摆最难发现（实测有过静默 52 分钟、蹲点空转刷 1700 行的情况）。
+         * 该状态只用于展示与排查，不会自动干预任务。
+         */
+        @Getter
+        val taskStallTimeoutMinutes: IntegerModelField =
+            IntegerModelField("taskStallTimeoutMinutes", "任务无进展判定为卡住(分钟)", 5)
 
         /**
          * 是否启用新接口（最低支持版本 v10.3.96.8100）

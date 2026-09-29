@@ -830,6 +830,10 @@ class AntForest : ModelTask(), EnergyCollectCallback {
         shieldRetryPolicy.startRound()
         val runStartTime = System.currentTimeMillis()
         Log.record(TAG, "🌲🌲🌲 森林主任务开始执行 🌲🌲🌲")
+        // 任务状态机：主任务进入进行中（后续靠收取/批次事件刷新「有进展」时间）
+        fansirsqi.xposed.sesame.task.TaskHealthMonitor.onStart(
+            fansirsqi.xposed.sesame.task.TaskHealthMonitor.ID_FOREST_MAIN, "本轮开始"
+        )
         val authCode = AuthCodeHelper.getAuthCode("2060170000363691" )
         val MiniMark = AlipayMiniMarkHelper.getAlipayMiniMark("2060170000363691" ,"1.0.1")
         Log.record(TAG, "游戏 2060170000363691 获取到的 authCode: $authCode   Mark:$MiniMark")
@@ -862,6 +866,9 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             // 收好友能量
             // -------------------------------
             // 先尝试使用找能量功能快速定位有能量的好友（协程）
+            fansirsqi.xposed.sesame.task.TaskHealthMonitor.onStart(
+                fansirsqi.xposed.sesame.task.TaskHealthMonitor.ID_COLLECT, "开始收取能量"
+            )
             Log.record(TAG, "🚀 执行找能量功能（协程）")
             collectEnergyByTakeLook()
             tc.countDebug("找能量收取（协程）")
@@ -1022,6 +1029,10 @@ class AntForest : ModelTask(), EnergyCollectCallback {
 
 
                 tc.stop()
+                fansirsqi.xposed.sesame.task.TaskHealthMonitor.onSuccess(
+                    fansirsqi.xposed.sesame.task.TaskHealthMonitor.ID_FOREST_MAIN,
+                    "耗时 ${(System.currentTimeMillis() - runStartTime) / 1000}秒"
+                )
             }
         } catch (e: CancellationException) {
             // 协程被取消是正常行为，不记录错误日志
@@ -1029,6 +1040,10 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             throw e // 重新抛出，让协程系统处理
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, "执行蚂蚁森林任务时发生错误: ", t)
+            fansirsqi.xposed.sesame.task.TaskHealthMonitor.onFailure(
+                fansirsqi.xposed.sesame.task.TaskHealthMonitor.ID_FOREST_MAIN,
+                t.message ?: "执行异常"
+            )
         } finally {
             // 计算总耗时
             val totalTime = System.currentTimeMillis() - runStartTime
@@ -1042,6 +1057,9 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             Log.record(TAG, "🌲🌲🌲 森林主任务执行完毕 🌲🌲🌲")
             Log.record(TAG, "⏱️ 主任务耗时: ${timeInSeconds}秒 (${totalTime}ms)")
             Log.record(TAG, "📊 收取统计: 收${totalCollected}g 帮${TOTAL_HELP_COLLECTED}g 浇${TOTAL_WATERED}g")
+            fansirsqi.xposed.sesame.task.TaskHealthMonitor.onSuccess(
+                fansirsqi.xposed.sesame.task.TaskHealthMonitor.ID_COLLECT, "收 ${totalCollected}g"
+            )
             if (waitingTaskCount > 0) {
                 Log.record(TAG, "⏰ 后台蹲点任务: $waitingTaskCount 个 (将在指定时间自动收取)")
                 // 输出详细的蹲点任务状态，帮助调试
@@ -1647,6 +1665,11 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             }
             val serverTime = userHomeObj.optLong("now", System.currentTimeMillis())
             val isSelf = userId == UserMap.currentUid
+            // 每收一个人就是一次「还活着」的证据；不区分失败（失败由下方 catch/结果处理体现）
+            fansirsqi.xposed.sesame.task.TaskHealthMonitor.onProgress(
+                fansirsqi.xposed.sesame.task.TaskHealthMonitor.ID_COLLECT,
+                if (isSelf) "收取自己" else "收取 ${UserMap.getMaskName(userId)}"
+            )
 
             // 2. 自己的能量不受缓存限制，好友的能量检查缓存避免重复处理
             if (!isSelf && !userId.isNullOrEmpty() && processedUsersCache.contains(userId)) {

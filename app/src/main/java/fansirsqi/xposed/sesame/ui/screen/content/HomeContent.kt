@@ -32,6 +32,7 @@ import fansirsqi.xposed.sesame.util.ToastUtil
 @Composable
 fun HomeContent(
     moduleStatus: MainViewModel.ModuleStatus,
+    taskHealth: List<fansirsqi.xposed.sesame.task.TaskHealthSnapshot>,
     deviceInfoMap: Map<String, String>?,
     oneWord: String,
     isOneWordLoading: Boolean,
@@ -62,6 +63,13 @@ fun HomeContent(
             }
         }
         // 1. 模块状态
+        item {
+            fansirsqi.xposed.sesame.ui.screen.card.TaskHealthCard(
+                tasks = taskHealth,
+                now = System.currentTimeMillis()
+            )
+        }
+
         item {
             ModuleStatusCard(
                 status = moduleStatus,

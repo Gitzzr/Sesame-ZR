@@ -59,6 +59,15 @@ fun MainScreen(
 
     var currentScreen by remember { mutableStateOf<BottomNavItem>(BottomNavItem.Home) } // 默认显示主页
 
+    // 停在「主页」时每 5 秒刷一次任务状态：宿主进程随时在写 task_health.json，
+    // 而「卡住」是按时间算出来的，不刷新就看不出「已经 7 分钟没动静了」
+    LaunchedEffect(currentScreen) {
+        while (currentScreen == BottomNavItem.Home) {
+            viewModel.refreshTaskHealth()
+            kotlinx.coroutines.delay(5_000L)
+        }
+    }
+
     val isOneWordLoading by viewModel.isOneWordLoading.collectAsStateWithLifecycle()
     val prefs = context.getSharedPreferences(PREFERENCES_KEY, Context.MODE_PRIVATE)
     var isIconHidden by remember { mutableStateOf(prefs.getBoolean("is_icon_hidden", false)) }
@@ -66,6 +75,7 @@ fun MainScreen(
 //    var showUserDialog by remember { mutableStateOf(false) }
 
     val deviceInfoMap by viewModel.deviceInfo.collectAsStateWithLifecycle()
+    val taskHealth by viewModel.taskHealth.collectAsStateWithLifecycle()
 
 
 
@@ -138,6 +148,7 @@ fun MainScreen(
             when (currentScreen) {
                 BottomNavItem.Home -> HomeContent(
                     moduleStatus = moduleStatus,
+                    taskHealth = taskHealth,
                     deviceInfoMap = deviceInfoMap,
                     oneWord = oneWord,
                     isOneWordLoading = isOneWordLoading,

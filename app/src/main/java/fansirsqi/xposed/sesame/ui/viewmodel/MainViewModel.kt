@@ -4,6 +4,10 @@ import android.app.Application
 import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import fansirsqi.xposed.sesame.model.BaseModel
+import fansirsqi.xposed.sesame.task.TaskHealthMonitor
+import fansirsqi.xposed.sesame.task.TaskHealthPolicy
+import fansirsqi.xposed.sesame.task.TaskHealthSnapshot
 import fansirsqi.xposed.sesame.SesameApplication.Companion.PREFERENCES_KEY
 import fansirsqi.xposed.sesame.entity.UserEntity
 import fansirsqi.xposed.sesame.service.ConnectionState
@@ -82,6 +86,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
 
+    /** 任务状态机快照（宿主进程写事件、这里按时间戳现算状态） */
+    private val _taskHealth = MutableStateFlow<List<TaskHealthSnapshot>>(emptyList())
+    val taskHealth: StateFlow<List<TaskHealthSnapshot>> = _taskHealth.asStateFlow()
+
     private var isInitialized = false
 
     fun initAppLogic() {
@@ -98,6 +106,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // 初始检查状态
             refreshModuleFrameworkStatus()
             refreshActiveUser()
+            refreshTaskHealth()
             // 注册监听
             LsposedServiceManager.addConnectionListener(serviceListener)
             startConfigDirectoryObserver()
@@ -110,6 +119,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
 
+
+    /**
+     * 读取任务状态机快照。
+     *
+     * 状态**不在**文件里定死：宿主进程只写事件时间戳，这里按 `TaskHealthPolicy` 结合
+     * 「无进展超时阈值」现算，所以任务卡死（含宿主进程被杀）时页面照样能显示成「已 N 分钟无进展」。
+     */
+    fun refreshTaskHealth() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val minutes = runCatching { BaseModel.taskStallTimeoutMinutes.value }
+                .getOrDefault(TaskHealthPolicy.DEFAULT_STALL_TIMEOUT_MINUTES)
+            // 优先用「当前选中账号」——模块 App 进程里 UserMap.currentUid 是空的，
+            // 只有宿主（支付宝）进程才填得上；这里拿不到时由 readAll 自己扫账号目录兜底
+            val uid = _activeUser.value?.userId?.takeIf { it.isNotEmpty() } ?: UserMap.currentUid
+            val rows = runCatching {
+                TaskHealthMonitor.readAll(uid, minutes)
+            }.getOrDefault(emptyList())
+            _taskHealth.value = rows
+        }
+    }
 
     /**
      * 刷新模块框架激活状态
