@@ -287,6 +287,16 @@ public class AntOcean extends ModelTask {
                 }
 
                 @Override
+                public boolean hasAbandonedToday(String taskType) {
+                    return Status.hasFlagToday("antOcean::aiFish::abandon::" + taskType);
+                }
+
+                @Override
+                public void markAbandonedToday(String taskType) {
+                    Status.setFlagToday("antOcean::aiFish::abandon::" + taskType);
+                }
+
+                @Override
                 public String rescueFish() {
                     return AntOceanRpcCall.aiFishRescue();
                 }
@@ -1190,6 +1200,22 @@ public class AntOcean extends ModelTask {
 
         void markCompletedToday(String taskType);
 
+        /**
+         * 该任务今天是否已放弃自动执行（`finishTask` 被服务端拒收过）。
+         *
+         * 被拒收的是**广告转化类**任务（玩游戏 30s、玩一玩X 这类，完成证据由游戏侧/服务端校验，
+         * 客户端没有完成通道）。判据不预先按类型猜，而是"试一次、被拒就记下来"：
+         * 一次请求换一个确定结论，也避免误伤同样标 `OTHER`、但确实能被 RPC 完成的任务
+         * （实测「去阿宝测一测我的摸鱼运势」「添加海洋至支付宝首页」都能正常完成并领奖）。
+         *
+         * 注意与「已完成」分开：放弃不影响 FINISHED 状态的领奖分支 ——
+         * 用户手动做完之后，模块照常领奖。
+         */
+        boolean hasAbandonedToday(String taskType);
+
+        /** 登记一次放弃（当天有效，跨天自动失效） */
+        void markAbandonedToday(String taskType);
+
         String rescueFish();
 
         String touchFish();
@@ -1546,7 +1572,11 @@ public class AntOcean extends ModelTask {
                                 && attemptedTasks.add(task.getTaskType())) {
                             if (shouldSkipToday(task)) {
                                 events.add("AI摸鱼任务今日已完成，跳过[" + task.getTitle() + "]");
+                            } else if (gateway.hasAbandonedToday(task.getTaskType())) {
+                                // 今天已经报过一次「为什么没做成」，静默跳过：
+                                // 再逐轮报只会给 ocean.log 添几十行/天的噪音
                             } else {
+                                // 每个任务每天只试一次：被拒收就登记放弃（见 finishAndConfirm）
                                 attemptedInPass = true;
                                 finishAndConfirm(task, attemptedRewards);
                             }
@@ -1569,6 +1599,15 @@ public class AntOcean extends ModelTask {
                     gateway.finishTask(task.getSceneCode(), task.getTaskType())
             )) {
                 events.add("AI摸鱼任务完成未受理[" + task.getTitle() + "]");
+                // 时长类任务理论上会被受理；这里被拒收说明该任务实际另有完成条件
+                // （例如元数据没给出 timeCount 的广告转化类）。兜底：拒收一次当天不再重试。
+                // 台账留痕：第二天「今日完成」页能看到它为什么没做成。
+                gateway.markAbandonedToday(task.getTaskType());
+                fansirsqi.xposed.sesame.task.DailyOnceAudit.record(
+                        UserMap.INSTANCE.getCurrentUid(),
+                        "antOcean::aiFish::abandon::" + task.getTaskType(),
+                        "海洋AI摸鱼[未受理不再试][" + task.getTitle() + "]"
+                );
                 return;
             }
             markCompletedTodayIfNeeded(task.getTaskType());
