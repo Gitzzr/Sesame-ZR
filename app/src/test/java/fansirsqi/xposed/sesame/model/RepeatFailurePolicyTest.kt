@@ -42,6 +42,19 @@ class RepeatFailurePolicyTest {
     }
 
     @Test
+    fun `服务端明确声明不可重试时归为确定性失败`() {
+        // 运动球任务的真实回应：errorCode=CAMP_TRIGGER_ERROR / errorMsg=海豚活动触发不可重试错误
+        assertEquals(
+            RepeatFailureKind.DETERMINISTIC,
+            RepeatFailurePolicy.kindOf(
+                "CAMP_TRIGGER_ERROR",
+                "海豚活动触发不可重试错误",
+                """{"errorCode":"CAMP_TRIGGER_ERROR","retryable":false}""",
+            )
+        )
+    }
+
+    @Test
     fun `服务端不可用：繁忙与 error3000`() {
         assertEquals(
             RepeatFailureKind.TRANSIENT,

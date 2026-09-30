@@ -567,6 +567,11 @@ TaskHealthPolicy.describe(snapshot, state, now): String   // 一行说明
 判定优先级：**被暂停 > 卡住 > 记录的状态**。被暂停时不能报卡住 —— 前者等自愈、后者要人工验证。
 「卡住」只看**无进展**（`max(lastProgressAt, lastStartAt)` 距今超阈值），不看有没有失败。
 
+⚠️ **进度信号要覆盖"整轮耗时"**：`forest.main` 一轮可能跑 30+ 分钟（收能量 + 蹲点等待），
+所以除了整轮结束的 `onSuccess`，**每收一个好友的能量也会刷新它的进度**
+（`AntForest` 的收能量回调里同时打 `ID_COLLECT` 与 `ID_FOREST_MAIN`）。
+只留"整轮结束"一个点会让面板在 5 分钟后误报「卡住」（2026-10-01 实测）。
+
 ### H2. `TaskHealthMonitor` —— 宿主侧入口
 
 ```kotlin

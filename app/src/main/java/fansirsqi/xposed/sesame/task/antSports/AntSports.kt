@@ -53,6 +53,9 @@ class AntSports : ModelTask() {
         /** @brief 走路挑战赛竞猜的失败计数 key（当天失败到上限即停止尝试，见 RepeatFailureGuard） */
         private const val KEY_WALK_PARTICIPATE = "sports::walkParticipate"
 
+        /** @brief 运动球任务的失败计数 key（当天失败到上限即停止尝试，见 RepeatFailureGuard） */
+        private const val KEY_ENERGY_BUBBLE = "sports::energyBubble"
+
         /** @brief 运动任务完成日期缓存键 */
         private const val SPORTS_TASKS_COMPLETED_DATE = "SPORTS_TASKS_COMPLETED_DATE"
 
@@ -587,9 +590,13 @@ class AntSports : ModelTask() {
      * - 成功后统一调用 pickBubbleTaskEnergy 领取奖励
      */
     private fun sportsEnergyBubbleTask() {
+        // 运动球任务当天多次失败就不再尝试（2026-10-01 实测：1.5 小时内
+        // 查询失败 19 次 + 提交失败 14 次，占当天 error.log 的四分之一）
+        if (RepeatFailureGuard.shouldSkipToday(KEY_ENERGY_BUBBLE)) return
         try {
             val jo = JSONObject(AntSportsRpcCall.queryEnergyBubbleModule())
             if (!ResChecker.checkRes(TAG, jo)) {
+                RepeatFailureGuard.recordFailure(KEY_ENERGY_BUBBLE, "运动球任务", jo.toString())
                 Log.error(TAG, "queryEnergyBubbleModule fail: $jo")
                 return
             }
@@ -623,6 +630,11 @@ class AntSports : ModelTask() {
                 } else {
                     val errorCode = completeRes.optString("errorCode", "")
                     val errorMsg = completeRes.optString("errorMsg", "")
+                    // 服务端明确给的是"不可重试"错误（如 CAMP_TRIGGER_ERROR 海豚活动）：
+                    // 记一次失败，当天攒够次数就整体停手，不再每轮换个 bubble 再试
+                    RepeatFailureGuard.recordFailure(
+                        KEY_ENERGY_BUBBLE, "运动球任务", errorCode, errorMsg, completeRes.toString(),
+                    )
                     Log.error(TAG, "运动球任务❌[$sourceName]#$completeRes 任务：$bubble")
 
                     if (id.isNotEmpty()) {

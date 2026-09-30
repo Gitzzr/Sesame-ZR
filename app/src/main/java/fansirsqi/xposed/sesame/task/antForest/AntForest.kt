@@ -1666,9 +1666,18 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             val serverTime = userHomeObj.optLong("now", System.currentTimeMillis())
             val isSelf = userId == UserMap.currentUid
             // 每收一个人就是一次「还活着」的证据；不区分失败（失败由下方 catch/结果处理体现）
+            val progressDetail = if (isSelf) "收取自己" else "收取 ${UserMap.getMaskName(userId)}"
             fansirsqi.xposed.sesame.task.TaskHealthMonitor.onProgress(
                 fansirsqi.xposed.sesame.task.TaskHealthMonitor.ID_COLLECT,
-                if (isSelf) "收取自己" else "收取 ${UserMap.getMaskName(userId)}"
+                progressDetail
+            )
+            // ⚠️ 同时刷新「森林主任务」的进度：主任务一轮可能跑 30+ 分钟（收能量 + 蹲点等待），
+            // 而它的 onSuccess 只在**整轮结束**时才打（见 runSuspend 末尾），
+            // 只靠那一个点会让面板在 5 分钟后就误报「卡住」（2026-10-01 小米17 实测：
+            // 00:00 开始的轮次跑到 00:35，期间面板显示"已 32 分钟无进展"，而日志里任务一直在收能量）。
+            fansirsqi.xposed.sesame.task.TaskHealthMonitor.onProgress(
+                fansirsqi.xposed.sesame.task.TaskHealthMonitor.ID_FOREST_MAIN,
+                progressDetail
             )
 
             // 2. 自己的能量不受缓存限制，好友的能量检查缓存避免重复处理
