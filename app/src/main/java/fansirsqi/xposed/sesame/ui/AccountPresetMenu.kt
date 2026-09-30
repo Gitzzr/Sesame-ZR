@@ -15,9 +15,11 @@ import fansirsqi.xposed.sesame.R
 import fansirsqi.xposed.sesame.entity.UserEntity
 import fansirsqi.xposed.sesame.model.AccountFriendListPolicy
 import fansirsqi.xposed.sesame.model.AccountPreset
+import fansirsqi.xposed.sesame.model.AccountPresetAutoFillPolicy
 import fansirsqi.xposed.sesame.model.AccountPresetPolicy
 import fansirsqi.xposed.sesame.model.FriendListKind
 import fansirsqi.xposed.sesame.model.FriendListRef
+import fansirsqi.xposed.sesame.model.PresetAutoFillCandidate
 import fansirsqi.xposed.sesame.model.PresetTier
 import fansirsqi.xposed.sesame.util.Log
 import fansirsqi.xposed.sesame.util.ToastUtil
@@ -152,20 +154,31 @@ object AccountPresetMenu {
             emptyMap()
         }.filterKeys { it in ids }
 
+        var autoFillHint: String? = null
         if (stored.isNotEmpty()) {
             stored.forEach { (uid, sel) -> state.selection[uid] = LinkedHashSet(sel) }
         } else {
-            // 从未配过：把「本机其他已载入账号」按推荐项预置好，同机双号时开箱即用
-            try {
+            // 从未配过：**只有候选账号自己的档位记录表明它是大号**时才按推荐项预置。
+            //
+            // 原实现把「本机其他账号」一律当成大号，遇到"本机另一个账号其实是小号"就会
+            // 默认勾错人（2026-09-30 K50 实测：新小号里把旧小号当成大号，默认勾了 12 项）。
+            // 判据见 AccountPresetAutoFillPolicy：MAIN 才预置，ALT 跳过，无记录不猜。
+            val candidates = try {
                 AccountPreset.otherAccountIds(account.uid)
                     .filter { it in ids }
-                    .forEach { uid -> state.selection[uid] = LinkedHashSet(recommended) }
+                    .map { uid -> PresetAutoFillCandidate(uid, AccountPreset.readRecord(uid)?.tier) }
             } catch (t: Throwable) {
                 Log.printStackTrace(TAG, "读取本机账号失败", t)
+                emptyList()
             }
+            AccountPresetAutoFillPolicy.preselectTargets(candidates)
+                .forEach { uid -> state.selection[uid] = LinkedHashSet(recommended) }
+            // 账号名在 UI 层渲染（策略侧不依赖 UserMap），避免把 16 位 uid 直接摆给用户
+            autoFillHint = AccountPresetAutoFillPolicy.hintFor(candidates)
+                ?.render(AccountPreset::displayName)
         }
 
-        showFriendDialog(context, account, tier, isMainList, friends, state, onApplied)
+        showFriendDialog(context, account, tier, isMainList, friends, state, autoFillHint, onApplied)
     }
 
     /**
@@ -179,6 +192,7 @@ object AccountPresetMenu {
         isMainList: Boolean,
         friends: List<AccountPreset.Friend>,
         state: EditorState,
+        autoFillHint: String?,
         onApplied: () -> Unit,
     ) {
         val adapter = FriendAdapter(context, friends, state)
@@ -210,6 +224,18 @@ object AccountPresetMenu {
                 setTextColor(0xFF888888.toInt())
                 setPadding(0, 0, 0, pad)
             })
+            // 没能自动判定出「大号」时给一句说明 —— 否则用户会以为"怎么谁都没勾"
+            autoFillHint?.let { hint ->
+                addView(TextView(context).apply {
+                    text = hint
+                    textSize = 13f
+                    setTextColor(0xFFB45309.toInt())
+                    setPadding(0, 0, 0, pad)
+                    // 多账号叠加时文案会长，限行避免把对话框撑高、把底部按钮顶出可视区
+                    maxLines = 3
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                })
+            }
             addView(
                 listView,
                 LinearLayout.LayoutParams(
