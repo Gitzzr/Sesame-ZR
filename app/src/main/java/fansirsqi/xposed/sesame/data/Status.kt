@@ -36,6 +36,15 @@ class Status {
      */
     var vitalityInsufficientList: MutableMap<String, Int> = HashMap()
 
+    /**
+     * 今日各目标（任务 / 接口）的失败次数，按调用方给的稳定 key 计。
+     *
+     * 供 [fansirsqi.xposed.sesame.model.RepeatFailurePolicy] 的"当天失败到上限就停止尝试"使用；
+     * 用于收敛「每轮都失败、当天从未成功」的调用（2026-09-30 实测占 K50 error.log 的 89%）。
+     * 跨天随 [companion].unload() 清零。
+     */
+    var failureCountTodayList: MutableMap<String, Int> = HashMap()
+
     // =========================== farm
     var answerQuestion: Boolean = false
     var feedFriendLogList: MutableMap<String, Int> = HashMap()
@@ -156,6 +165,27 @@ class Status {
         @JvmStatic
         fun hasGivenUpVitalityExchangeToday(skuId: String): Boolean {
             return getVitalityInsufficientCount(skuId) >= VITALITY_INSUFFICIENT_MAX_ATTEMPTS
+        }
+
+        /** 今日该目标的失败次数（未记录过为 0）。 */
+        @JvmStatic
+        fun getFailureCountToday(key: String): Int {
+            return INSTANCE.failureCountTodayList[key] ?: 0
+        }
+
+        /**
+         * 记一次失败，返回今日累计次数。
+         *
+         * 加锁与同文件的 [save]/[load]/[unload] 保持一致：读-改-写之间不加锁，
+         * 并发下同 key 可能丢一次自增，甚至在两个线程都算出"恰好达到上限"时重复播报。
+         */
+        @JvmStatic
+        @Synchronized
+        fun markFailureToday(key: String): Int {
+            val count = getFailureCountToday(key) + 1
+            INSTANCE.failureCountTodayList[key] = count
+            save()
+            return count
         }
 
         @JvmStatic

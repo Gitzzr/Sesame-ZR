@@ -130,6 +130,7 @@ Windows 下把 `./gradlew` 换成 `./gradlew.bat`。完整说明见 [`docs/devel
 | [`docs/component-api.md`](docs/component-api.md) | 组件与对外 API：Compose 组件、Web JS 合同、HTTP 接口、ModelField | docs/ |
 | [`docs/daily-once-tasks.md`](docs/daily-once-tasks.md) | 「一天一次」任务：机制、已落地清单、待核对清单、核对台账 | docs/ |
 | [`docs/interaction-limits.md`](docs/interaction-limits.md) | 支付宝各好友互动功能的每日次数上限（含来源与置信度） | docs/ |
+| [`docs/failure-give-up.md`](docs/failure-give-up.md) | **重复失败放弃**：同一目标当天失败到上限就停止尝试（判定表、接入清单、**限制清单**） | docs/ |
 | [`CODEBUDDY.md`](CODEBUDDY.md) | 给 CodeBuddy Code 的精简版仓库导览 | 根目录 |
 | [`CHANGELOG.md`](CHANGELOG.md) | 用户可见改动的日期表（写法见 `docs/development.md` §4） | 根目录 |
 

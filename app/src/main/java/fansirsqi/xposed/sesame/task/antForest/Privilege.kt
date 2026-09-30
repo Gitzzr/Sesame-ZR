@@ -3,6 +3,7 @@ package fansirsqi.xposed.sesame.task.antForest
 import fansirsqi.xposed.sesame.data.Status
 import fansirsqi.xposed.sesame.task.DailyTaskLogPolicy
 import fansirsqi.xposed.sesame.util.Log
+import fansirsqi.xposed.sesame.task.RepeatFailureGuard
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -10,6 +11,9 @@ import java.util.Calendar
 
 object Privilege {
     private const val TAG = "Privilege"
+
+    /** 学生签到模型查询的失败计数 key */
+    private const val KEY_STUDENT_CHECK_IN = "forest::studentCheckIn"
 
     // 标记 & 前缀
     private const val FLAG_RECEIVED = "youth_privilege_forest_received"
@@ -144,6 +148,9 @@ object Privilege {
     }
 
     private fun processStudentSignIn() {
+        // 学生签到模型查询当天多次失败就不再尝试（2026-09-30 实测 25 次全失败）
+        if (RepeatFailureGuard.shouldSkipToday(KEY_STUDENT_CHECK_IN)) return
+
         val response = AntForestRpcCall.studentQqueryCheckInModel()
         val result = try {
             JSONObject(response)
@@ -154,6 +161,11 @@ object Privilege {
 
         if (result.optString("resultCode") != RPC_SUCCESS) {
             val resultDesc = result.optString("resultDesc", "查询失败")
+            RepeatFailureGuard.recordFailure(
+                KEY_STUDENT_CHECK_IN, "青春特权签到查询",
+                // 同上：整段响应一起传，保证风控/空响应能被豁免判据看到
+                result.optString("resultCode"), resultDesc, result.toString(),
+            )
             Log.record("$PREFIX_SIGN 查询失败：$resultDesc")
             recordPrivilege(DailyTaskLogPolicy.ACTION_CHECKIN, "青春特权签到", "查询", false, resultDesc)
             return

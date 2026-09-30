@@ -23,6 +23,7 @@ import fansirsqi.xposed.sesame.task.antOrchard.AntOrchardRpcCall.orchardSpreadMa
 import fansirsqi.xposed.sesame.util.CoroutineUtils
 import fansirsqi.xposed.sesame.util.GlobalThreadPools
 import fansirsqi.xposed.sesame.util.Log
+import fansirsqi.xposed.sesame.task.RepeatFailureGuard
 import fansirsqi.xposed.sesame.util.Log.record
 import fansirsqi.xposed.sesame.util.ResChecker
 import fansirsqi.xposed.sesame.util.TaskBlacklist
@@ -1202,9 +1203,19 @@ class AntMember : ModelTask() {
     }
 
     private fun triggerMemberTreasureBox(task: MemberTreasureBoxTask) {
+        // 宝箱接口当天多次失败就不再尝试（2026-09-30 实测 39 轮全失败：PARAM_ILLEGAL / 系统繁忙）
+        val boxKey = KEY_TREASURE_BOX_PREFIX + task.bizNo
+        if (RepeatFailureGuard.shouldSkipToday(boxKey)) return
         try {
             val response = JSONObject(AntMemberRpcCall.triggerSignFloatingBall(task))
             if (!ResChecker.checkRes("$TAG.triggerSignFloatingBall", response)) {
+                RepeatFailureGuard.recordFailure(
+                    boxKey, "会员宝箱",
+                    // 连整段响应一起传：风控/空响应可能只在 error/errorMessage 里，
+                    // 只传 resultCode/resultDesc 会得到空串，导致豁免判不出来
+                    response.optString("resultCode"), response.optString("resultDesc"),
+                    response.toString(),
+                )
                 return
             }
             val currentTask = response.optJSONObject("currentTaskInfo")
@@ -1615,10 +1626,20 @@ class AntMember : ModelTask() {
                 Log.error("$TAG.collectInsuredGold.queryInsuredHome", "保障金🏥[响应失败]#$s")
                 return@run
             }
-            jo = jo.getJSONObject("data")
-            val signInBall = jo.getJSONObject("signInDTO")
-            val otherBallList = jo.getJSONArray("eventToWaitDTOList")
-            if (1 == signInBall.getInt("sendFlowStatus") && 1 == signInBall.getInt("sendType")) {
+            // 字段缺失时按"不可领取"处理 —— 原来用 getInt/getJSONObject 直接取值，
+            // 服务端一改字段就抛 JSONException（2026-09-30 实测每天约 15 次整栈日志）
+            val dataJo = jo.optJSONObject("data")
+            if (dataJo == null) {
+                Log.error("$TAG.collectInsuredGold.queryInsuredHome", "保障金🏥[响应缺少 data]#$s")
+                return@run
+            }
+            jo = dataJo
+            val signInBall = jo.optJSONObject("signInDTO")
+            val otherBallList = jo.optJSONArray("eventToWaitDTOList") ?: JSONArray()
+            if (signInBall != null
+                && 1 == signInBall.optInt("sendFlowStatus", 0)
+                && 1 == signInBall.optInt("sendType", 0)
+            ) {
                 s = AntMemberRpcCall.collectInsuredGold(signInBall)
                 delay(2000)
                 jo = JSONObject(s)
@@ -2402,6 +2423,12 @@ class AntMember : ModelTask() {
                     record(TAG, "芝麻炼金任务: 模板为空，跳过 $title")
                     continue
                 }
+                // 领取失败的炼金任务（如「订阅炼金签到提醒 - 生活记录模板不存在」）
+                // 当天失败到上限后不再尝试该模板，见 RepeatFailureGuard
+                val joinKey = "sesame::join::$templateId"
+                if (RepeatFailureGuard.shouldSkipToday(joinKey)) {
+                    continue
+                }
                 val joinRes = AntMemberRpcCall.joinSesameTask(templateId)
                 val joinJo = JSONObject(joinRes)
                 if (ResChecker.checkRes(TAG, joinJo)) {
@@ -2412,9 +2439,14 @@ class AntMember : ModelTask() {
                     record(TAG, "任务领取成功: $title")
                     delay(1000)
                 } else {
-                    Log.error(
-                        TAG, "任务领取失败: " + title + " - " + joinJo.optString("resultView", joinRes)
+                    val reason = joinJo.optString("resultView", joinRes)
+                    RepeatFailureGuard.recordFailure(
+                        joinKey, "芝麻炼金任务[$title]",
+                        // 与其余接入点对齐：只传 resultView 时，若风控/空响应文案出现在别的字段
+                        // 就判不出豁免；这里追加整段响应
+                        reason, joinRes,
                     )
+                    Log.error(TAG, "任务领取失败: $title - $reason")
                     continue
                 }
             }
@@ -3162,6 +3194,14 @@ class AntMember : ModelTask() {
          * 商家服务任务单次执行的最大轮数（每轮都会重新拉列表；正常 1–2 轮就能做完）。
          */
         private const val MERCHANT_TASK_MAX_ROUNDS = 3
+
+        /**
+         * 会员宝箱的失败计数 key 前缀。
+         *
+         * 必须带上 `bizNo`：一天可能有多个宝箱（按 `nextTaskInfo` 链式预约），
+         * 共用一个 key 会让它们互相消耗失败预算（见 docs/failure-give-up.md §3 L4）。
+         */
+        private const val KEY_TREASURE_BOX_PREFIX = "member::treasureBox::"
 
         /**
          * 商家服务「更多任务」：拉一次列表 → 处理可做的任务 → **确有推进**才再拉一次。

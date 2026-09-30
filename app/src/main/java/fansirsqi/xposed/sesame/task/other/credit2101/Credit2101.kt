@@ -9,6 +9,7 @@ import fansirsqi.xposed.sesame.model.modelFieldExt.SelectModelField
 import fansirsqi.xposed.sesame.util.DataStore
 import fansirsqi.xposed.sesame.util.GlobalThreadPools
 import fansirsqi.xposed.sesame.util.Log
+import fansirsqi.xposed.sesame.task.RepeatFailureGuard
 import fansirsqi.xposed.sesame.util.ResChecker
 import fansirsqi.xposed.sesame.util.TaskBlacklist.autoAddToBlacklist
 import fansirsqi.xposed.sesame.util.TaskBlacklist.isTaskInBlacklist
@@ -58,6 +59,9 @@ object Credit2101 {
     //GOLD_MARK 金色印记，每次消耗5注能值
 
     private const val TAG = "2101"//Credit
+
+    /** 账户查询的失败计数 key（当天失败到上限即停止尝试，见 RepeatFailureGuard） */
+    private const val KEY_QUERY_ACCOUNT = "credit2101::queryAccountAsset"
 
     /**
      * 信用2101 专用任务/游戏类型定义
@@ -229,6 +233,13 @@ object Credit2101 {
     @JvmStatic
     fun doCredit2101(credittaskoptions: SelectModelField ,creditoptions: SelectAndCountModelField) {
         try {
+            // 账户查询今天已放弃（失败达到上限）→ 整个 2101 静默跳过。
+            // 必须在这里拦：否则下面 queryAccountAsset() 返回 null 后仍会每轮写一条
+            // 「账户查询失败」的 error，那样"静默跳过"就名不副实、日志也没降下来。
+            if (RepeatFailureGuard.shouldSkipToday(KEY_QUERY_ACCOUNT)) {
+                Log.debug(TAG, "信用2101[账户查询今日已放弃，跳过]")
+                return
+            }
             Log.record(TAG, "执行开始 信用2101")
             this.mCreditTaskOptions = credittaskoptions
             this.mCreditEventOptions = creditoptions
@@ -393,8 +404,13 @@ object Credit2101 {
 
     /** 查询账户详情并解析为 AccountInfo */
     private fun queryAccountAsset(): AccountInfo? {
+        // 这里只记失败、不做"是否已放弃"的判断：判断统一在 doCredit2101 入口，
+        // 否则会出现两种不同的跳过行为（入口静默、这里却会写一条 error）
         val resp = Credit2101RpcCall.queryAccountAsset()
-        if (!ResChecker.checkRes(TAG, resp)) return null
+        if (!ResChecker.checkRes(TAG, resp)) {
+            RepeatFailureGuard.recordFailure(KEY_QUERY_ACCOUNT, "信用2101 账户查询", resp)
+            return null
+        }
 
         return runCatching {
             val jo = JSONObject(resp)
