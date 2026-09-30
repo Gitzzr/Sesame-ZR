@@ -3158,12 +3158,37 @@ class AntMember : ModelTask() {
         /**
          * 商家积分任务
          */
+        /**
+         * 商家服务任务单次执行的最大轮数（每轮都会重新拉列表；正常 1–2 轮就能做完）。
+         */
+        private const val MERCHANT_TASK_MAX_ROUNDS = 3
+
+        /**
+         * 商家服务「更多任务」：拉一次列表 → 处理可做的任务 → **确有推进**才再拉一次。
+         *
+         * ⚠️ 原实现是 `if (doubleCheck) doMerchantMoreTask()` 的**递归自调用**，而 `doubleCheck`
+         * 在任务带 `extendLog` 时**无条件置位**（不看 `taskFinish` 是否成功），`delay(1000)` 又写在
+         * `finally` 里，于是递归下降阶段没有任何间隔。
+         * 2026-09-30 小米17 实测：00:38–13:05 连续重试 **905 次**、节奏约 **2 次/秒**、
+         * 单分钟峰值 78 次，服务端一律回 `errCode 001 系统异常`。
+         *
+         * 现在改为**有轮次上限的循环**：只有「服务端真的受理了」才继续下一轮，
+         * 列表拉取失败或服务端报错时当轮即停。
+         */
         private suspend fun doMerchantMoreTask(): Unit = CoroutineUtils.run {
-            val s = AntMemberRpcCall.taskListQuery()
-            try {
-                var doubleCheck = false
-                var jo = JSONObject(s)
-                if (ResChecker.checkRes(TAG, jo)) {
+            var round = 0
+            var progressed = true
+            while (progressed && round < MERCHANT_TASK_MAX_ROUNDS) {
+                round++
+                progressed = false
+                try {
+                    val s = AntMemberRpcCall.taskListQuery()
+                    val jo = JSONObject(s)
+                    if (!ResChecker.checkRes(TAG, jo)) {
+                        // 列表都拉不到（含 errCode 001 系统异常）：当轮停止，不再递归重试
+                        record(TAG, "商家服务任务列表获取失败，本轮停止: " + jo.optString("errMsg", s))
+                        break
+                    }
                     val taskList = jo.getJSONObject("data").getJSONArray("taskList")
                     for (i in 0..<taskList.length()) {
                         val task = taskList.getJSONObject(i)
@@ -3175,19 +3200,21 @@ class AntMember : ModelTask() {
                         val taskStatus = task.getString("status")
                         if ("NEED_RECEIVE" == taskStatus) {
                             if (task.has("pointBallId")) {
-                                jo = JSONObject(AntMemberRpcCall.ballReceive(task.getString("pointBallId")))
-                                if (ResChecker.checkRes(TAG, jo)) {
+                                val award = JSONObject(AntMemberRpcCall.ballReceive(task.getString("pointBallId")))
+                                if (ResChecker.checkRes(TAG, award)) {
                                     Log.life("商家服务🏬[$title]#领取积分$reward")
+                                    progressed = true
                                 }
                             }
                         } else if ("PROCESSING" == taskStatus || "UNRECEIVED" == taskStatus) {
                             if (task.has("extendLog")) {
                                 val bizExtMap = task.getJSONObject("extendLog").getJSONObject("bizExtMap")
-                                jo = JSONObject(AntMemberRpcCall.taskFinish(bizExtMap.getString("bizId")))
-                                if (ResChecker.checkRes(TAG, jo)) {
+                                val finish = JSONObject(AntMemberRpcCall.taskFinish(bizExtMap.getString("bizId")))
+                                // 只有服务端真的受理才算推进（原实现无条件置位 → 递归风暴）
+                                if (ResChecker.checkRes(TAG, finish)) {
                                     Log.life("商家服务🏬[$title]#领取积分$reward")
+                                    progressed = true
                                 }
-                                doubleCheck = true
                             } else {
                                 when (val taskCode = task.getString("taskCode")) {
                                     "SYH_CPC_DYNAMIC" ->                   // 逛一逛商品橱窗
@@ -3223,20 +3250,20 @@ class AntMember : ModelTask() {
                             }
                         }
                     }
-                    if (doubleCheck) {
-                        doMerchantMoreTask()
+                } catch (t: Throwable) {
+                    Log.printStackTrace(TAG, "taskListQuery err:", t)
+                    break
+                }
+                if (progressed) {
+                    try {
+                        delay(1000)
+                    } catch (e: Exception) {
+                        Log.printStackTrace(e)
                     }
-                } else {
-                    record(TAG, "taskListQuery err: $s")
                 }
-            } catch (t: Throwable) {
-                Log.printStackTrace(TAG, "taskListQuery err:", t)
-            } finally {
-                try {
-                    delay(1000)
-                } catch (e: Exception) {
-                    Log.printStackTrace(e)
-                }
+            }
+            if (progressed) {
+                record(TAG, "商家服务任务达到轮次上限($MERCHANT_TASK_MAX_ROUNDS)，停止本轮")
             }
         }
 

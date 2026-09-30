@@ -82,10 +82,14 @@ class ChouChouLe {
      * 返回是否该类型已全部完成
      */
     private fun doChouchoule(drawType: String): Boolean {
-        var doubleCheck: Boolean
+        val taskName = if (drawType == "ipDraw") "IP抽抽乐" else "抽抽乐"
+        var round = 0
+        var previousSignature: String? = null
+        var keepGoing = true
         try {
-            do {
-                doubleCheck = false
+            while (keepGoing) {
+                round++
+                var hadSuccessfulAction = false
                 val jo = JSONObject(AntFarmRpcCall.chouchouleListFarmTask(drawType))
                 if (!ResChecker.checkRes(TAG, jo)) {
                     Log.error(TAG, if (drawType == "ipDraw") "IP抽抽乐任务列表获取失败" else "抽抽乐任务列表获取失败")
@@ -94,24 +98,43 @@ class ChouChouLe {
 
                 val farmTaskList = jo.getJSONArray("farmTaskList")
                 val tasks = parseTasks(farmTaskList)
+                // 「状态 + 剩余次数」快照，用来判断这一轮到底有没有真的推进
+                val signature = ChouChouLeLoopPolicy.signatureOf(
+                    tasks.map { "${it.taskId}:${it.taskStatus}:${it.getRemainingTimes()}" }
+                )
 
                 for (task in tasks) {
                     if (TaskStatus.FINISHED.name == task.taskStatus) {
                         if (receiveTaskAward(drawType, task.taskId)) {
                             GlobalThreadPools.sleepCompat(300L)
-                            doubleCheck = true
+                            hadSuccessfulAction = true
                         }
                     } else if (TaskStatus.TODO.name == task.taskStatus) {
                         // 只要有剩余次数，且（不是捐赠任务 OR 开启了捐赠任务开关），就执行
                         if (task.getRemainingTimes() > 0 &&
                             (task.innerAction != "DONATION" || AntFarm.instance?.doChouChouLeDonationTask?.value == true)) {
                             if (doChouTask(drawType, task)) {
-                                doubleCheck = true
+                                hadSuccessfulAction = true
                             }
                         }
                     }
                 }
-            } while (doubleCheck)
+
+                when (ChouChouLeLoopPolicy.actionFor(
+                    round, previousSignature, signature, hadSuccessfulAction
+                )) {
+                    ChouChouLeLoopAction.CONTINUE -> previousSignature = signature
+                    ChouChouLeLoopAction.STOP_NO_ACTION -> keepGoing = false
+                    ChouChouLeLoopAction.STOP_NO_PROGRESS -> {
+                        keepGoing = false
+                        Log.farm("$taskName⏹[无进展退出: 任务状态与剩余次数均未变化，已执行 $round 轮]")
+                    }
+                    ChouChouLeLoopAction.STOP_MAX_ROUNDS -> {
+                        keepGoing = false
+                        Log.farm("$taskName⏹[达到轮次上限 ${ChouChouLeLoopPolicy.MAX_ROUNDS}，停止]")
+                    }
+                }
+            }
         } catch (t: Throwable) {
             Log.printStackTrace("doChouchoule err:", t)
             return false
