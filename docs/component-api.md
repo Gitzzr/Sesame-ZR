@@ -578,12 +578,28 @@ TaskHealthPolicy.describe(snapshot, state, now): String   // 一行说明
 只留"整轮结束"一个点会让面板在 5 分钟后误报「卡住」（2026-10-01 实测）。
 注意这只保证"相位之间"有信号：**若某个单相位自身超过阈值，仍会短暂显示卡住**（已知边界）。
 
+⚠️ **等待态（蹲点）不看"多久没进展"，看"预计时刻"**：等待期间本来就没有任何上报
+（协程在 `delay` 到能量成熟时刻），按无进展判会让"等得越久越像卡住"（实测误报 23 分钟）。
+所以快照带 `expectedAt`（预计动作时刻，由 `EnergyWaitingManager` 上报**最早到期**的那个任务）：
+
+- `now < expectedAt` → 等待中（正常）；
+- `expectedAt ≤ now ≤ expectedAt + 阈值` → 等待中（宽限内，正在收）；
+- `now > expectedAt + 阈值` → **卡住**（该收没收，真异常）；
+- `expectedAt == 0`（历史记录/其它来源）→ 退回"按无进展判定"。
+
+面板文案：等待中显示「预计 HH:MM 收取」，卡住且超预计时间时显示「已超预计收取时间 N 分钟」。
+
+⚠️ **暂停原因有自愈**：`blockedReason` 是全局值、会写进每一项并落盘，**只靠"解除时清一次"会留残影**
+（进程在暂停期间被杀、或接续路径变化都会留下）——判定为「已暂停」而任务其实在跑（2026-10-01 实测）。
+现在 `ordered()` **始终**以全局值覆盖每一项（为空就写空），并加了不变量 **在线 ⇒ 没有任何暂停原因**
+（`TaskHealthPolicy.shouldClearStaleBlock`，进度事件与写盘时都会就地纠正）。
+
 ### H2. `TaskHealthMonitor` —— 宿主侧入口
 
 ```kotlin
 onStart(id, detail)      // 进入进行中
 onProgress(id, detail)   // 有进展（收能量时逐好友、主任务还按相位边界调用；落盘节流 3s）
-onWaiting(id, detail)    // 等能量成熟 —— 正常状态，不算卡住
+onWaiting(id, detail, expectedAt)  // 等能量成熟（expectedAt=预计动作时刻，判定以它为基准）
 onSuccess(id, detail)    // 成功，清零 consecutiveFailures
 onFailure(id, detail)    // 失败，累加 consecutiveFailures
 onBlocked(reason)        // 全局：被离线/安全验证挡住

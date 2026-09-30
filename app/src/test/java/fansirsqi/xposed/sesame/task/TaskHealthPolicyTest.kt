@@ -17,11 +17,13 @@ class TaskHealthPolicyTest {
         successAt: Long = 0,
         blocked: String = "",
         detail: String = "",
-        failures: Int = 0
+        failures: Int = 0,
+        expectedAt: Long = 0
     ) = TaskHealthSnapshot(
-        id = "forest.collect", label = "收能量", state = state,
+        id = "forest.waiting", label = "蹲点收取", state = state,
         lastStartAt = startAt, lastProgressAt = progressAt, lastSuccessAt = successAt,
-        blockedReason = blocked, detail = detail, consecutiveFailures = failures
+        blockedReason = blocked, detail = detail, consecutiveFailures = failures,
+        expectedAt = expectedAt
     )
 
     @Test
@@ -61,6 +63,55 @@ class TaskHealthPolicyTest {
     }
 
     @Test
+    fun `等预计时刻的蹲点不会因为久无进展被判卡住`() {
+        // 2026-10-01 实测：蹲点等待 23 分钟被判「卡住」，而它在等能量成熟 —— 是误报。
+        val waitingLong = snap(
+            TaskHealthState.WAITING,
+            progressAt = now - 60 * 60_000L,      // 一小时没进展
+            expectedAt = now + 30 * 60_000L,      // 但预计 30 分钟后才该动作
+        )
+        assertEquals(TaskHealthState.WAITING, TaskHealthPolicy.evaluate(waitingLong, now, timeout5min))
+    }
+
+    @Test
+    fun `过了预计时刻但在宽限内仍算等待`() {
+        val justPassed = snap(TaskHealthState.WAITING, expectedAt = now - 2 * 60_000L)
+        assertEquals(TaskHealthState.WAITING, TaskHealthPolicy.evaluate(justPassed, now, timeout5min))
+    }
+
+    @Test
+    fun `过了预计时刻且超出宽限才算卡住`() {
+        val overdue = snap(TaskHealthState.WAITING, expectedAt = now - 6 * 60_000L)
+        assertEquals(TaskHealthState.STALLED, TaskHealthPolicy.evaluate(overdue, now, timeout5min))
+    }
+
+    @Test
+    fun `没有预计时刻的等待仍按无进展判定`() {
+        // 兼容历史记录与其它来源的等待态：expectedAt=0 → 退回旧逻辑
+        val stale = snap(TaskHealthState.WAITING, progressAt = now - 20 * 60_000L)
+        assertEquals(TaskHealthState.STALLED, TaskHealthPolicy.evaluate(stale, now, timeout5min))
+    }
+
+    @Test
+    fun `等待中的说明会给出预计收取时间`() {
+        val s = snap(
+            TaskHealthState.WAITING,
+            detail = "7 个待收 · [某某]",
+            expectedAt = now + 10 * 60_000L,
+        )
+        val text = TaskHealthPolicy.describe(s, TaskHealthPolicy.evaluate(s, now, timeout5min), now)
+        assertTrue(text.contains("预计"))
+        assertTrue(text.contains("收取"))
+    }
+
+    @Test
+    fun `超时未收时说明给的是超出预计时间多久`() {
+        val s = snap(TaskHealthState.WAITING, expectedAt = now - 40 * 60_000L)
+        val text = TaskHealthPolicy.describe(s, TaskHealthPolicy.evaluate(s, now, timeout5min), now)
+        assertTrue("应说明超预计时间多久，实际：$text", text.contains("已超预计收取时间 40 分钟"))
+    }
+
+    @Test
     fun `被暂停优先于卡住`() {
         val s = snap(
             TaskHealthState.RUNNING,
@@ -74,6 +125,19 @@ class TaskHealthPolicyTest {
     fun `还没开始过的任务不会因为模块被暂停而显示为已暂停`() {
         val s = snap(TaskHealthState.IDLE, blocked = "离线中")
         assertEquals(TaskHealthState.IDLE, TaskHealthPolicy.evaluate(s, now, timeout5min))
+    }
+
+    @Test
+    fun `在线时不该保留任何暂停原因`() {
+        // 2026-10-01 实测：暂停原因落盘后被接续，离线解除只清全局 → 盘上留残影 →
+        // 界面永远显示「已暂停（离线中）」，而任务其实在跑。
+        assertTrue(TaskHealthPolicy.shouldClearStaleBlock("离线中", offline = false))
+        assertTrue(TaskHealthPolicy.shouldClearStaleBlock("安全验证暂停中", offline = false))
+        // 确实离线时要保留，否则又变成"看不到已暂停"
+        assertFalse(TaskHealthPolicy.shouldClearStaleBlock("离线中", offline = true))
+        // 本来就没有暂停原因：无事可做
+        assertFalse(TaskHealthPolicy.shouldClearStaleBlock("", offline = false))
+        assertFalse(TaskHealthPolicy.shouldClearStaleBlock("", offline = true))
     }
 
     @Test

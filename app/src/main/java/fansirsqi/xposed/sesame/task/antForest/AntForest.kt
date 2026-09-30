@@ -1685,11 +1685,13 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                 fansirsqi.xposed.sesame.task.TaskHealthMonitor.ID_COLLECT,
                 progressDetail
             )
-            // 收能量同样是「主任务在推进」的证据（收上百个好友要好几分钟，期间不该判「卡住」）；
-            // 相位级进展由 runSuspend 的 phase() 统一上报，蹲点则是独立后台协程。
+            // 收能量同样是「主任务在推进」的证据（收上百个好友要好几分钟，期间不该判「卡住」）。
+            // ⚠️ 这里**只刷时间戳、不传明细**：本回调每个好友都触发一次（1–2 秒），
+            // 若把「收取 XXX」也写进主任务，会把它的相位名/耗时明细淹没 ——
+            // 于是主页两行都显示「收取 XXX」（2026-10-01 实测）。onProgress 的语义是
+            // `detail.ifEmpty { 原值 }`，所以留空即"保留原明细"。
             fansirsqi.xposed.sesame.task.TaskHealthMonitor.onProgress(
-                fansirsqi.xposed.sesame.task.TaskHealthMonitor.ID_FOREST_MAIN,
-                progressDetail
+                fansirsqi.xposed.sesame.task.TaskHealthMonitor.ID_FOREST_MAIN
             )
 
             // 2. 自己的能量不受缓存限制，好友的能量检查缓存避免重复处理

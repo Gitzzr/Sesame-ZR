@@ -49,7 +49,16 @@ data class TaskHealthSnapshot(
     /** 非空表示被离线/安全验证暂停挡住 */
     val blockedReason: String = "",
     /** 最近一次进展的说明，如「收取 阿锐|*梓锐」「批次 3/8」 */
-    val detail: String = ""
+    val detail: String = "",
+    /**
+     * **预计该动作的时刻**（毫秒），0 表示"没有预计时间"。
+     *
+     * 目前只有蹲点收取会填：它在等能量的成熟时刻（`calculatePreciseCollectTime`），
+     * 等待期间**本来就不会有进展** —— 若按"多久没进展"判卡住，蹲点等得越久越像卡住
+     * （2026-10-01 实测：等待 23 分钟后被判「卡住」，而它其实正常）。
+     * 判定改为「过了预计时刻 + 宽限仍未动作」才算卡住，见 [TaskHealthPolicy.evaluate]。
+     */
+    val expectedAt: Long = 0L
 )
 
 /**
@@ -94,6 +103,14 @@ object TaskHealthPolicy {
         val state = snapshot.state
         if (state != TaskHealthState.RUNNING && state != TaskHealthState.WAITING) return state
 
+        // 等预计时刻的任务（蹲点收取）：基准是「该动作的时间」，不是「多久没进展」。
+        // 等待期间没有任何上报是正常的（协程在 delay 到成熟时刻），
+        // 只有**过了预计时刻 + 一个阈值宽限**还没动作，才算真卡住。
+        if (state == TaskHealthState.WAITING && snapshot.expectedAt > 0L) {
+            return if (now - snapshot.expectedAt > stallTimeoutMs) TaskHealthState.STALLED
+            else TaskHealthState.WAITING
+        }
+
         val lastAliveAt = maxOf(snapshot.lastProgressAt, snapshot.lastStartAt)
         if (lastAliveAt <= 0L) return state
         return if (now - lastAliveAt > stallTimeoutMs) TaskHealthState.STALLED else state
@@ -122,9 +139,17 @@ object TaskHealthPolicy {
         if (state == TaskHealthState.BLOCKED && snapshot.blockedReason.isNotEmpty()) {
             parts.add(snapshot.blockedReason)
         }
+        if (state == TaskHealthState.WAITING && snapshot.expectedAt > now) {
+            parts.add("预计 ${timeOf(snapshot.expectedAt)} 收取")
+        }
         if (state == TaskHealthState.STALLED) {
-            val lastAliveAt = maxOf(snapshot.lastProgressAt, snapshot.lastStartAt)
-            parts.add("已 ${minutesOf(now - lastAliveAt)} 分钟无进展")
+            if (snapshot.expectedAt > 0L && now > snapshot.expectedAt) {
+                // 等预计时刻的那类：说"超时多久"比说"多久没进展"有意义
+                parts.add("已超预计收取时间 ${minutesOf(now - snapshot.expectedAt)} 分钟")
+            } else {
+                val lastAliveAt = maxOf(snapshot.lastProgressAt, snapshot.lastStartAt)
+                parts.add("已 ${minutesOf(now - lastAliveAt)} 分钟无进展")
+            }
         }
         if (snapshot.detail.isNotEmpty()) parts.add(snapshot.detail)
         if (snapshot.lastSuccessAt > 0L) {
@@ -172,6 +197,19 @@ object TaskHealthPolicy {
             cal.get(java.util.Calendar.DAY_OF_MONTH)
         )
     }
+
+    /**
+     * 是否应当把陈旧的「暂停原因」就地清掉。
+     *
+     * 背景（2026-10-01 实测）：暂停原因会被**写进每一项并落盘**，而磁盘是跨进程的。
+     * 若解除离线时只清了内存里的全局值，盘上的「离线中」会在下次接续时被读回来 →
+     * 界面按「被暂停优先」的规则永远显示「已暂停」，可任务其实在跑（切机重启后尤其明显）。
+     *
+     * 判据很直接：**只要模块此刻不在离线状态，就不该存在任何暂停原因**。
+     */
+    @JvmStatic
+    fun shouldClearStaleBlock(reason: String, offline: Boolean): Boolean =
+        reason.isNotEmpty() && !offline
 
     private fun minutesOf(millis: Long): Long = (millis / 60_000L).coerceAtLeast(0L)
 

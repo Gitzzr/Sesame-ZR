@@ -369,10 +369,16 @@ object EnergyWaitingManager {
      * 核心原则：不提前收取，严格按时机执行
      */
     private fun startPreciseWaitingCoroutine(task: WaitingTask) {
-        // 任务状态机：进入等待（等能量成熟）—— 等待本身是正常状态，不算卡住
+        // 任务状态机：进入等待（等能量成熟）—— 等待本身是正常状态，不算卡住。
+        // 带上「最早到期」的那个任务的预计收取时刻：判定以它为基准（过了它 + 一个阈值还没动作才算卡住），
+        // 否则蹲点在等待期间没有任何上报，等得越久越像卡住（2026-10-01 实测误报 23 分钟）。
+        val expectedAt = runCatching {
+            waitingTasks.values.minOfOrNull { calculatePreciseCollectTime(it) } ?: 0L
+        }.getOrDefault(0L)
         fansirsqi.xposed.sesame.task.TaskHealthMonitor.onWaiting(
             fansirsqi.xposed.sesame.task.TaskHealthMonitor.ID_WAITING,
-            "${waitingTasks.size} 个待收 · [${task.userName}]"
+            "${waitingTasks.size} 个待收 · [${task.userName}]",
+            expectedAt
         )
         val job = managerScope.launch(start = CoroutineStart.LAZY) {
             try {
