@@ -6,8 +6,8 @@ This file provides guidance to CodeBuddy Code when working with code in this rep
 
 本仓库已经建立了完整的文档体系，**不要在开发过程中从零重新探索**：
 
-1. **[`AGENTS.md`](AGENTS.md)** —— AI 进入本项目首先需要知道的信息：8 条硬规则、环境现状、**未完成功能（抽抽乐调度策略）**、常用命令、代码地图。
-2. **[`TODO.md`](TODO.md)** —— 当前任务与优先级。P0 两条都已有结论：P0-2 环境搭建已完成、P0-1 编译阻塞已解但功能仍未实现。
+1. **[`AGENTS.md`](AGENTS.md)** —— AI 进入本项目首先需要知道的信息：8 条硬规则、环境现状、常用命令、代码地图。
+2. **[`TODO.md`](TODO.md)** —— 当前任务与优先级。P0 两条都已有结论：P0-2 环境搭建已完成、P0-1 抽抽乐调度策略已于 2026-09-26 实现并接线。
 
 ## 文档体系
 
@@ -27,7 +27,13 @@ This file provides guidance to CodeBuddy Code when working with code in this rep
 ## 三条最容易踩的
 
 1. **主干是 `main`，且只有这一条长期分支**（GitHub Flow）：特性分支 → PR → Squash merge。CI 只认 `main`，禁止直推。
-2. **抽抽乐调度策略是个半成品，不是「测试坏了」** —— `app/src/test/java/fansirsqi/xposed/sesame/task/antFarm/ChouChouLeSchedulePolicyTest.kt` 引用的 `ChouChouLeScheduleAction` / `ChouChouLeSchedulePolicy` **在主源码中不存在**，该测试已用 `@Ignore` 跳过、断言注释保留成契约。**`./gradlew :app:testDebugUnitTest` 是可编译、可执行的**（该用例显示为 skipped），别看到 `@Ignore` 就以为测试任务挂了。要补实现得先定调度语义，见 `TODO.md` P0-1。
+2. **「循环一定要有无进展退出条件」是本项目踩过的坑** —— 抽抽乐与会员商家任务都曾出现
+   「服务端一直回成功、但状态不推进 → 循环以 1 次/秒空转数小时」：
+   抽抽乐 2026-09-30 实测刷了 19,120 行日志（≥3.8 万次 RPC），商家任务递归重试 905 次。
+   判定逻辑一律抽成 `*Policy`（如 `ChouChouLeLoopPolicy`）并配契约测试；
+   **不要把「RPC 返回成功」当作「任务有进展」。**
+   （历史：`ChouChouLeSchedulePolicy` 曾在 `579aae63` 里只有测试没有实现，
+   2026-09-26 已补实现并接线到 `AntFarm.handleChouChouLeLogic()`，该测试现已正常执行。）
 3. **很多单测是「读源码文本做断言」**（`File("src/main/...")`）—— 必须经 Gradle 跑（工作目录是 `app/`），且**重命名标识符会打挂它们**。
 
 其余一切（构建命令、环境要求、架构、约定）以 `AGENTS.md` 与 `docs/` 为准。
