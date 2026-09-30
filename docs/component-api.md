@@ -612,3 +612,26 @@ readAll(userId, stallTimeoutMinutes, now): List<TaskHealthSnapshot>  // 界面�
 6. **三个 Web 页面互不共享代码**（`semi_index.html` / `varlet_index.html` / `index.html` 是三个独立文件），改一处不会同步到其他两处。
 7. **扩展函数 `Context.openUrl` / `joinQQGroup` 只在 UI 层用**，不要在 hook 或 task 里引入 `android.content.Intent` 副作用。
 8. 新增 `*Policy` 对象时，**保持纯函数/无副作用**，否则失去可测性（这是策略层存在的唯一理由）。
+
+---
+
+## J. 重复失败放弃（`model/RepeatFailurePolicy` + `util/RepeatFailureGuard`）
+
+同一目标**当天失败到上限（5 次）就停止尝试**，用于收敛「每轮都失败、当天从未成功」的调用；
+完整限制清单见 [`docs/failure-give-up.md`](failure-give-up.md)。
+
+```kotlin
+// 纯判定（可单测，无 Android 依赖）
+RepeatFailurePolicy.DAILY_FAILURE_LIMIT                  // 5
+RepeatFailurePolicy.kindOf(vararg hints: String?): RepeatFailureKind   // DETERMINISTIC / TRANSIENT / UNKNOWN
+RepeatFailurePolicy.shouldGiveUp(failureCountToday: Int): Boolean
+
+// 接线（读写 Status 当天计数 + 播报 + 台账）
+RepeatFailureGuard.shouldSkipToday(key: String): Boolean
+RepeatFailureGuard.recordFailure(key: String, displayName: String, vararg hints: String?): Boolean
+```
+
+计数落在 `config/<uid>/status.json` 的 `failureCountTodayList`（跨天随 `unload()` 清零）。
+**⚠️ 类别只影响措辞不影响阈值**：不可用类同样是"当天放弃"而非退避。
+
+---

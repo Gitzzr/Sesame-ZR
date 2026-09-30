@@ -9,6 +9,7 @@ import fansirsqi.xposed.sesame.model.modelFieldExt.SelectModelField
 import fansirsqi.xposed.sesame.util.DataStore
 import fansirsqi.xposed.sesame.util.GlobalThreadPools
 import fansirsqi.xposed.sesame.util.Log
+import fansirsqi.xposed.sesame.util.RepeatFailureGuard
 import fansirsqi.xposed.sesame.util.ResChecker
 import fansirsqi.xposed.sesame.util.TaskBlacklist.autoAddToBlacklist
 import fansirsqi.xposed.sesame.util.TaskBlacklist.isTaskInBlacklist
@@ -58,6 +59,9 @@ object Credit2101 {
     //GOLD_MARK 金色印记，每次消耗5注能值
 
     private const val TAG = "2101"//Credit
+
+    /** 账户查询的失败计数 key（当天失败到上限即停止尝试，见 RepeatFailureGuard） */
+    private const val KEY_QUERY_ACCOUNT = "credit2101::queryAccountAsset"
 
     /**
      * 信用2101 专用任务/游戏类型定义
@@ -393,8 +397,15 @@ object Credit2101 {
 
     /** 查询账户详情并解析为 AccountInfo */
     private fun queryAccountAsset(): AccountInfo? {
+        // 账户查询失败则整个 2101 流程无事可做（2026-09-30 实测 39 轮全失败）：
+        // 当天失败到上限后不再发请求，避免几十次无效调用与日志噪音
+        if (RepeatFailureGuard.shouldSkipToday(KEY_QUERY_ACCOUNT)) return null
+
         val resp = Credit2101RpcCall.queryAccountAsset()
-        if (!ResChecker.checkRes(TAG, resp)) return null
+        if (!ResChecker.checkRes(TAG, resp)) {
+            RepeatFailureGuard.recordFailure(KEY_QUERY_ACCOUNT, "信用2101 账户查询", resp)
+            return null
+        }
 
         return runCatching {
             val jo = JSONObject(resp)

@@ -49,6 +49,9 @@ class AntSports : ModelTask() {
         /** @brief 日志 TAG */
         private val TAG: String = AntSports::class.java.simpleName
 
+        /** @brief 走路挑战赛竞猜的失败计数 key（当天失败到上限即停止尝试，见 RepeatFailureGuard） */
+        private const val KEY_WALK_PARTICIPATE = "sports::walkParticipate"
+
         /** @brief 运动任务完成日期缓存键 */
         private const val SPORTS_TASKS_COMPLETED_DATE = "SPORTS_TASKS_COMPLETED_DATE"
 
@@ -1392,6 +1395,8 @@ class AntSports : ModelTask() {
      * @brief 文体中心走路挑战报名
      */
     private fun participate() {
+        // 竞猜接口当天多次失败就不再尝试（2026-09-30 实测 39 轮全返回 error 3000）
+        if (RepeatFailureGuard.shouldSkipToday(KEY_WALK_PARTICIPATE)) return
         try {
             val s = AntSportsRpcCall.queryAccount()
             var jo = JSONObject(s)
@@ -1433,6 +1438,9 @@ class AntSports : ModelTask() {
                             val targetStepCount = data.getInt("targetStepCount")
                             Log.life("走路挑战🚶🏻‍♂️[$roundDescription]#$targetStepCount")
                         } else {
+                            RepeatFailureGuard.recordFailure(
+                                KEY_WALK_PARTICIPATE, "走路挑战赛竞猜", res.toString(),
+                            )
                             Log.record(TAG, "走路挑战赛 $res")
                         }
                     }
