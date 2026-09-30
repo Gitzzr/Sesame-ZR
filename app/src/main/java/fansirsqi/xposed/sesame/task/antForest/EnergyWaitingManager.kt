@@ -372,9 +372,13 @@ object EnergyWaitingManager {
         // 任务状态机：进入等待（等能量成熟）—— 等待本身是正常状态，不算卡住。
         // 带上「最早到期」的那个任务的预计收取时刻：判定以它为基准（过了它 + 一个阈值还没动作才算卡住），
         // 否则蹲点在等待期间没有任何上报，等得越久越像卡住（2026-10-01 实测误报 23 分钟）。
-        val expectedAt = runCatching {
-            waitingTasks.values.minOfOrNull { calculatePreciseCollectTime(it) } ?: 0L
-        }.getOrDefault(0L)
+        // 取**最早到期**那个任务的时刻作为基准（过了它 + 一个阈值还没动作才算卡住）。
+        // 逐项容错，不用整体的 runCatching：某一个任务算不出来就让整个基准归零的话，
+        // 蹲点会退回"按多久没进展判卡住"的老误报（2026-10-01 实测等待 23 分钟被判卡住），
+        // 而坏掉的那一项并不代表其余任务也没有预计时刻。
+        val expectedAt = waitingTasks.values
+            .mapNotNull { task -> runCatching { calculatePreciseCollectTime(task) }.getOrNull() }
+            .minOrNull() ?: 0L
         fansirsqi.xposed.sesame.task.TaskHealthMonitor.onWaiting(
             fansirsqi.xposed.sesame.task.TaskHealthMonitor.ID_WAITING,
             "${waitingTasks.size} 个待收 · [${task.userName}]",
