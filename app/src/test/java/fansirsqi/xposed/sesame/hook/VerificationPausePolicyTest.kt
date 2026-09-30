@@ -231,4 +231,19 @@ class VerificationPausePolicyTest {
             )
         )
     }
+
+    @Test
+    fun `入口提示覆盖会员与文体中心两类来源`() {
+        // 2026-10-01 实测：触发验证的方法是 alipay.imasp.program.programInvoke（会员侧调用），
+        // 不在映射表里时提示为「未知」，用户不知道该去哪里做验证。
+        assertEquals(
+            "会员中心",
+            VerificationPausePolicy.entryHintFor("alipay.imasp.program.programInvoke")
+        )
+        // 名称与 AntSports / AccountPresetPolicy 里的用户可见名保持一致（「文体中心」）
+        assertEquals(
+            "文体中心",
+            VerificationPausePolicy.entryHintFor("alipay.tiyubiz.wenti.walk.participate")
+        )
+    }
 }

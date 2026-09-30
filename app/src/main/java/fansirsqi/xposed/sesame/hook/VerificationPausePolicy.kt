@@ -78,7 +78,12 @@ object VerificationPausePolicy {
         "alipaymember" to "会员中心",
         "membertangram" to "会员中心",
         "memberasset" to "会员中心",
-        "amic." to "会员中心"
+        "amic." to "会员中心",
+        // 2026-10-01 实测：触发验证的方法是 alipay.imasp.program.programInvoke（会员侧），
+        // 不在表里时提示为「未知」，用户不知道该去哪里做验证
+        "imasp." to "会员中心",
+        // 与仓库其它地方的用户可见名保持一致（AntSports / AccountPresetPolicy 里叫「文体中心」）
+        "tiyubiz" to "文体中心"
     )
 
     /**

@@ -845,6 +845,15 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             // 计数器和时间记录
             monday = true
             val tc = TimeCounter(TAG)
+            // 相位边界统一刷新「主任务」进度：一轮里有道具 / 能量雨 / 收能量 / 浇水 / 赠道具等多个相位，
+            // 任一相位都可能超过 5 分钟的「无进展」阈值 —— 只在整轮结束打一个点会误报「卡住」
+            // （2026-10-01 小米17 实测：00:00 开始的轮次跑到 00:35，面板却显示"已 32 分钟无进展"）。
+            fun phase(name: String) {
+                tc.countDebug(name)
+                fansirsqi.xposed.sesame.task.TaskHealthMonitor.onProgress(
+                    fansirsqi.xposed.sesame.task.TaskHealthMonitor.ID_FOREST_MAIN, name
+                )
+            }
             if (showBagList!!.value) showBag()
 
             Log.record(TAG, "执行开始-蚂蚁$name")
@@ -856,11 +865,16 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             // -------------------------------
             // 先查询主页，更新道具状态（双击卡、保护罩等的剩余时间）
             updateSelfHomePage()
-            tc.countDebug("查询道具状态")
+            phase("查询道具状态")
 
             usePropBeforeCollectEnergy(selfId)
-            tc.countDebug("使用自己道具卡")
+            phase("使用自己道具卡")
             executeEnergyRainIfNeeded(tc)
+            // 能量雨是最可能"单相位超阈值"的一段（最多 10 局、每局 8–16 秒随机延迟），
+            // 它内部拿不到 runSuspend 的局部 phase()，这里补一次主任务进展
+            fansirsqi.xposed.sesame.task.TaskHealthMonitor.onProgress(
+                fansirsqi.xposed.sesame.task.TaskHealthMonitor.ID_FOREST_MAIN, "能量雨"
+            )
 
             // -------------------------------
             // 收好友能量
@@ -871,14 +885,14 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             )
             Log.record(TAG, "🚀 执行找能量功能（协程）")
             collectEnergyByTakeLook()
-            tc.countDebug("找能量收取（协程）")
+            phase("找能量收取（协程）")
 
             // -------------------------------
             // 收PK好友能量
             // -------------------------------
             Log.record(TAG, "🚀 异步执行PK好友能量收取")
             collectPKEnergyCoroutine()  // 好友道具在 collectFriendEnergy 内会自动处理
-            tc.countDebug("收PK好友能量（同步）")
+            phase("收PK好友能量（同步）")
 
             // -------------------------------
             // 收自己能量
@@ -886,31 +900,31 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             Log.record(TAG, "🌳 【正常流程】开始收取自己的能量...")
             val selfHomeObj = run {
                 val obj = querySelfHome()
-                tc.countDebug("获取自己主页对象信息")
+                phase("获取自己主页对象信息")
                 if (obj != null) {
 
                     collectEnergy(UserMap.currentUid, obj, "self")
                     Log.record(TAG, "✅ 【正常流程】收取自己的能量完成")
-                    tc.countDebug("收取自己的能量")
+                    phase("收取自己的能量")
                 } else {
                     Log.error(TAG, "❌ 【正常流程】获取自己主页信息失败，跳过能量收取")
-                    tc.countDebug("跳过自己的能量收取（主页获取失败）")
+                    phase("跳过自己的能量收取（主页获取失败）")
                 }
                 obj
             }
 
             handleEnergyPvpChallenge()
-            tc.countDebug("1V1能量挑战领奖")
+            phase("1V1能量挑战领奖")
 
             // 然后执行传统的好友排行榜收取（协程）
             Log.record(TAG, "🚀 执行好友能量收取（协程）")
             collectFriendEnergyCoroutine() // 内部会自动调用 usePropBeforeCollectEnergy(userId, false)
-            tc.countDebug("收取好友能量（同步）")
+            phase("收取好友能量（同步）")
 
             // 本轮收取好友能量后，重新检查倍率卡新增的待领取能量
             try {
                 updateSelfHomePage()
-                tc.countDebug("复查倍率卡能量")
+                phase("复查倍率卡能量")
             } catch (th: Throwable) {
                 Log.printStackTrace(TAG, "复查倍率卡能量失败", th)
             }
@@ -921,7 +935,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             if (selfHomeObj != null) {
                 // 检查并处理打地鼠（每天一次）
                 checkAndHandleWhackMole()
-                tc.countDebug("拼手速")
+                phase("拼手速")
 
                 val processObj = if (isTeam(selfHomeObj)) {
                     selfHomeObj.optJSONObject("teamHomeResult")
@@ -937,76 +951,76 @@ class AntForest : ModelTask(), EnergyCollectCallback {
 
                 if (collectWateringBubble!!.value) {
                     wateringBubbles(processObj)
-                    tc.countDebug("收取浇水金球")
+                    phase("收取浇水金球")
                 }
                 if (collectProp!!.value) {
                     givenProps(processObj)
-                    tc.countDebug("收取道具")
+                    phase("收取道具")
                 }
                 if (userPatrol!!.value) {
                     queryUserPatrol()
-                    tc.countDebug("动物巡护任务")
+                    phase("动物巡护任务")
                 }
 
                 handleUserProps(selfHomeObj)
-                tc.countDebug("收取动物派遣能量")
+                phase("收取动物派遣能量")
 
                 collectEnergyBomb(selfHomeObj)
-                tc.countDebug("收取炸弹卡能量")
+                phase("收取炸弹卡能量")
 
                 if (canConsumeAnimalProp && consumeAnimalProp!!.value) {
                     queryAndConsumeAnimal()
-                    tc.countDebug("森林巡护")
+                    phase("森林巡护")
                 } else {
                     Log.debug("已经有动物伙伴在巡护森林~")
                 }
 
                 if (combineAnimalPiece!!.value) {
                     queryAnimalAndPiece()
-                    tc.countDebug("合成动物碎片")
+                    phase("合成动物碎片")
                 }
 
                 if (receiveForestTaskAward!!.value) {
                     receiveTaskAward()
-                    tc.countDebug("森林任务")
+                    phase("森林任务")
                 }
                 if (ecoLife!!.value) {
                     // 检查是否到达执行时间
                     if (TaskTimeChecker.isTimeReached(ecoLifeTime?.value, "0800")) {
                         EcoLife.ecoLife()
-                        tc.countDebug("绿色行动")
+                        phase("绿色行动")
                     } else {
                         Log.record(TAG, "绿色行动未到执行时间，跳过")
                     }
                 }
 
                 waterFriends()
-                tc.countDebug("给好友浇水")
+                phase("给好友浇水")
 
                 if (giveProp!!.value) {
                     giveProp()
-                    tc.countDebug("赠送道具")
+                    phase("赠送道具")
                 }
 
                 if (vitalityExchange!!.value) {
                     handleVitalityExchange()
-                    tc.countDebug("活力值兑换")
+                    phase("活力值兑换")
                 }
 
                 if (forestMarket!!.value) {
                     GreenLife.ForestMarket("GREEN_LIFE")
                     //  GreenLife.ForestMarket("ANTFOREST")  二级条目暂时关闭
-                    tc.countDebug("森林集市")
+                    phase("森林集市")
                 }
 
                 if (medicalHealth!!.value) {
                     if (medicalHealthOption!!.value.contains("FEEDS")) {
                         Healthcare.queryForestEnergy("FEEDS")
-                        tc.countDebug("绿色医疗")
+                        phase("绿色医疗")
                     }
                     if (medicalHealthOption!!.value.contains("BILL")) {
                         Healthcare.queryForestEnergy("BILL")
-                        tc.countDebug("电子小票")
+                        phase("电子小票")
                     }
                 }
 
@@ -1022,7 +1036,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                 if (forestChouChouLe!!.value) {
                     val chouChouLe = ForestChouChouLe()
                     chouChouLe.chouChouLe()
-                    tc.countDebug("抽抽乐")
+                    phase("抽抽乐")
                 }
 
                 doforestgame()
@@ -1666,9 +1680,16 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             val serverTime = userHomeObj.optLong("now", System.currentTimeMillis())
             val isSelf = userId == UserMap.currentUid
             // 每收一个人就是一次「还活着」的证据；不区分失败（失败由下方 catch/结果处理体现）
+            val progressDetail = if (isSelf) "收取自己" else "收取 ${UserMap.getMaskName(userId)}"
             fansirsqi.xposed.sesame.task.TaskHealthMonitor.onProgress(
                 fansirsqi.xposed.sesame.task.TaskHealthMonitor.ID_COLLECT,
-                if (isSelf) "收取自己" else "收取 ${UserMap.getMaskName(userId)}"
+                progressDetail
+            )
+            // 收能量同样是「主任务在推进」的证据（收上百个好友要好几分钟，期间不该判「卡住」）；
+            // 相位级进展由 runSuspend 的 phase() 统一上报，蹲点则是独立后台协程。
+            fansirsqi.xposed.sesame.task.TaskHealthMonitor.onProgress(
+                fansirsqi.xposed.sesame.task.TaskHealthMonitor.ID_FOREST_MAIN,
+                progressDetail
             )
 
             // 2. 自己的能量不受缓存限制，好友的能量检查缓存避免重复处理

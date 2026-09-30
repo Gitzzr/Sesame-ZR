@@ -164,7 +164,7 @@ key 就永远攒不到 5 次 —— 机制会**静默失效**（表现为"该目
 
 | 类别 | 判据（子串，大小写不敏感） |
 | --- | --- |
-| `DETERMINISTIC` 确定性失败 | `param_illegal`、`生活记录模板不存在`、`模板不存在`、`任务还没有完成`、`quota_user_not_enough`；另有 `不支持rpc完成`（**当前无接入点传入，为同类场景预留**） |
+| `DETERMINISTIC` 确定性失败 | `param_illegal`、`生活记录模板不存在`、`模板不存在`、`任务还没有完成`、`quota_user_not_enough`、`不可重试`、`camp_trigger_error`（后两条都是运动球任务的回应：错误码 + 文案都认，服务端改文案时不至于退化成"未判定"）；另有 `不支持rpc完成`（**当前无接入点传入，为同类场景预留**） |
 | `TRANSIENT` 服务端不可用 | `系统繁忙`、`繁忙`、`系统出错`、`"error":3000`、`"error": 3000`（两种写法都收）、`请稍后重试`、`限流`、`网络`、`超时`、`timed out` |
 | `UNKNOWN` 未判定 | 以上都不命中（**按继续尝试处理**） |
 
@@ -189,6 +189,7 @@ key 就永远攒不到 5 次 —— 机制会**静默失效**（表现为"该目
 | `sports::walkParticipate` | 走路挑战赛竞猜 | `task/antSports/AntSports.kt` `participate()` | 当天不再下单（单次调用内也会中途停） | 39 次/天 |
 | `sesame::join::<templateId>` | 芝麻炼金任务[标题] | `task/antMember/AntMember.kt` `processAlchemyTasks()` | 该模板当天不再领取（后续上报/提交本就不会执行，与原失败分支等价） | 32 次/天 |
 | `forest::studentCheckIn` | 青春特权签到查询 | `task/antForest/Privilege.kt` `processStudentSignIn()` | 当天不再查询学生签到（同函数内其它分支不受影响） | 25 次/天 |
+| `sports::energyBubble` | 运动球任务 | `task/antSports/AntSports.kt` `sportsEnergyBubbleTask()` | 当天不再查/做运动球任务（服务端对这类任务常回"不可重试"，重试无意义） | 33 条/1.5 小时（2026-10-01） |
 
 **已知同类但未接入**：
 
@@ -217,3 +218,4 @@ key 就永远攒不到 5 次 —— 机制会**静默失效**（表现为"该目
 | 2026-10-01 | 按首轮代码审查修订：新增 L2 硬豁免（安全验证/空响应不计入）、修正 §2/§5 的副作用描述、移除不可达判据、宝箱 key 带 `bizNo`、守卫移入 `task` 包、补 §2.1 台账副作用 |
 | 2026-10-01 | 按第二轮审查修订：豁免清单补全 4 条风控文案并加**交叉断言**（风控文案 ⊆ 不计入）、宝箱/签到改传整段响应、去掉冗余内层 guard、补 L5 的 `bizNo` 反向风险与 L12 的待验证项 |
 | 2026-10-01 | 按第三轮审查修订：§4 判定表与代码逐条对齐（删掉 `not_support_rpc`、补全 3 条风控文案），芝麻炼金接入点与其余 4 处对齐（追加整段响应） |
+| 2026-10-01 | 新增接入点 `sports::energyBubble`（运动球任务）与判据 `不可重试` + `camp_trigger_error`；同日另修任务健康面板误报「卡住」与安全验证入口提示（见 changelog） |
