@@ -17,6 +17,7 @@ import fansirsqi.xposed.sesame.model.modelFieldExt.SelectModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.StringModelField
 import fansirsqi.xposed.sesame.task.ModelTask
 import fansirsqi.xposed.sesame.task.RunnerExecutionPolicy
+import fansirsqi.xposed.sesame.task.RepeatFailureGuard
 import fansirsqi.xposed.sesame.util.*
 import fansirsqi.xposed.sesame.util.maps.UserMap
 import org.json.JSONArray
@@ -1408,6 +1409,8 @@ class AntSports : ModelTask() {
                 if (ResChecker.checkRes(TAG, jo)) {
                     val dataList = jo.getJSONArray("dataList")
                     for (i in 0 until dataList.length()) {
+                        // 单次调用里也会逐轮下单：中途达到上限就停，避免一次调用就超预算
+                        if (RepeatFailureGuard.shouldSkipToday(KEY_WALK_PARTICIPATE)) break
                         jo = dataList.getJSONObject(i)
                         if ("P" != jo.getString("status")) continue
                         if (jo.has("userRecord")) continue

@@ -56,18 +56,20 @@ object RepeatFailurePolicy {
     /**
      * 确定性失败的判据（**大小写不敏感**，命中任一即判为 [RepeatFailureKind.DETERMINISTIC]）。
      *
-     * 取值来自真机日志里实际出现过的服务端回应；新增判据时请同步更新
-     * `docs/failure-give-up.md` 的判定表与 `RepeatFailurePolicyTest`。
+     * 判据来自**服务端回应本身**的字段/文案；新增判据时请同步更新
+     * `docs/failure-give-up.md` 的判定表与 `RepeatFailurePolicyTest`（后者会整表遍历锁死）。
+     *
+     * `internal` 是为了让契约测试能遍历整张表，避免"文档有、代码没测"的漂移。
      */
-    private val DETERMINISTIC_HINTS = listOf(
-        "param_illegal",              // 参数非法（会员宝箱：PARAM_ILLEGAL）
+    internal val DETERMINISTIC_HINTS = listOf(
+        "param_illegal",              // 会员宝箱：resultCode=PARAM_ILLEGAL
         "生活记录模板不存在",           // 芝麻炼金：模板契约不存在
         "模板不存在",
         "任务还没有完成",              // 会员任务结算：条件未满足
-        "返回为空或非 success",        // 信用2101 账户查询
-        "不支持rpc完成",              // 明确声明不支持 RPC 完成的任务
         "quota_user_not_enough",      // 已达上限
-        "i07", "i09",                 // 森林抽抽乐里已知的确定性错误码
+        // 以下两条当前没有接入点传进来，为同类场景预留（不在文档判定表里当"已生效"列）
+        "不支持rpc完成",
+        "not_support_rpc",
     )
 
     /**
@@ -75,13 +77,38 @@ object RepeatFailurePolicy {
      *
      * ⚠️ 命中这些**同样**在达到上限后停止尝试，措辞标为"服务端不可用"以便次日核对。
      */
-    private val TRANSIENT_HINTS = listOf(
+    internal val TRANSIENT_HINTS = listOf(
         "系统繁忙", "繁忙",
         "系统出错",
         "error\":3000", "\"error\": 3000",
         "请稍后重试",
         "限流", "网络", "超时", "timed out",
     )
+
+    /**
+     * **不计入失败预算**的回应（安全验证与"空响应"占位）。
+     *
+     * 这两种都不是"业务失败"，而是"链路当下不可用/需要人工验证"：
+     *
+     * - `RPC_VERIFICATION_REQUIRED`：触发安全验证。**绝不能**据此写成"该功能今天不再尝试"
+     *   —— 项目硬规则 3 明确把"该功能今天不再尝试"列为禁忌；验证是**暂停**（有 TTL、会自愈），
+     *   恢复后本应重新尝试。
+     * - `EMPTY_RPC_RESPONSE`：RPC 返回为空（离线/网络抖动/占位）。离线自愈后本应重新尝试。
+     *
+     * 判据与 `hook/RequestManager.kt` 里的常量对齐。
+     */
+    internal val NON_COUNTED_HINTS = listOf(
+        "rpc_verification_required",
+        "触发安全验证",
+        "empty_rpc_response",
+    )
+
+    /** 该回应是否**可以**计入失败预算；安全验证 / 空响应一律不计（见 [NON_COUNTED_HINTS]）。 */
+    fun isCountable(vararg hints: String?): Boolean {
+        val text = hints.filterNotNull().joinToString(" ").lowercase()
+        if (text.isBlank()) return true          // 判不出来时按"可计数"，由类别决定措辞
+        return NON_COUNTED_HINTS.none { it in text }
+    }
 
     /**
      * 归类一条失败回应。参数可以传错误码、`resultDesc`、整段响应文本等，

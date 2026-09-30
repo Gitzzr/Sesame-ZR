@@ -23,7 +23,7 @@ import fansirsqi.xposed.sesame.task.antOrchard.AntOrchardRpcCall.orchardSpreadMa
 import fansirsqi.xposed.sesame.util.CoroutineUtils
 import fansirsqi.xposed.sesame.util.GlobalThreadPools
 import fansirsqi.xposed.sesame.util.Log
-import fansirsqi.xposed.sesame.util.RepeatFailureGuard
+import fansirsqi.xposed.sesame.task.RepeatFailureGuard
 import fansirsqi.xposed.sesame.util.Log.record
 import fansirsqi.xposed.sesame.util.ResChecker
 import fansirsqi.xposed.sesame.util.TaskBlacklist
@@ -1204,12 +1204,13 @@ class AntMember : ModelTask() {
 
     private fun triggerMemberTreasureBox(task: MemberTreasureBoxTask) {
         // 宝箱接口当天多次失败就不再尝试（2026-09-30 实测 39 轮全失败：PARAM_ILLEGAL / 系统繁忙）
-        if (RepeatFailureGuard.shouldSkipToday(KEY_TREASURE_BOX)) return
+        val boxKey = KEY_TREASURE_BOX_PREFIX + task.bizNo
+        if (RepeatFailureGuard.shouldSkipToday(boxKey)) return
         try {
             val response = JSONObject(AntMemberRpcCall.triggerSignFloatingBall(task))
             if (!ResChecker.checkRes("$TAG.triggerSignFloatingBall", response)) {
                 RepeatFailureGuard.recordFailure(
-                    KEY_TREASURE_BOX, "会员宝箱",
+                    boxKey, "会员宝箱",
                     response.optString("resultCode"), response.optString("resultDesc"),
                 )
                 return
@@ -3186,8 +3187,13 @@ class AntMember : ModelTask() {
          */
         private const val MERCHANT_TASK_MAX_ROUNDS = 3
 
-        /** 会员宝箱的失败计数 key */
-        private const val KEY_TREASURE_BOX = "member::treasureBox"
+        /**
+         * 会员宝箱的失败计数 key 前缀。
+         *
+         * 必须带上 `bizNo`：一天可能有多个宝箱（按 `nextTaskInfo` 链式预约），
+         * 共用一个 key 会让它们互相消耗失败预算（见 docs/failure-give-up.md §3 L4）。
+         */
+        private const val KEY_TREASURE_BOX_PREFIX = "member::treasureBox::"
 
         /**
          * 商家服务「更多任务」：拉一次列表 → 处理可做的任务 → **确有推进**才再拉一次。

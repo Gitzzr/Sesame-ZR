@@ -9,7 +9,7 @@ import fansirsqi.xposed.sesame.model.modelFieldExt.SelectModelField
 import fansirsqi.xposed.sesame.util.DataStore
 import fansirsqi.xposed.sesame.util.GlobalThreadPools
 import fansirsqi.xposed.sesame.util.Log
-import fansirsqi.xposed.sesame.util.RepeatFailureGuard
+import fansirsqi.xposed.sesame.task.RepeatFailureGuard
 import fansirsqi.xposed.sesame.util.ResChecker
 import fansirsqi.xposed.sesame.util.TaskBlacklist.autoAddToBlacklist
 import fansirsqi.xposed.sesame.util.TaskBlacklist.isTaskInBlacklist
@@ -233,6 +233,13 @@ object Credit2101 {
     @JvmStatic
     fun doCredit2101(credittaskoptions: SelectModelField ,creditoptions: SelectAndCountModelField) {
         try {
+            // 账户查询今天已放弃（失败达到上限）→ 整个 2101 静默跳过。
+            // 必须在这里拦：否则下面 queryAccountAsset() 返回 null 后仍会每轮写一条
+            // 「账户查询失败」的 error，那样"静默跳过"就名不副实、日志也没降下来。
+            if (RepeatFailureGuard.shouldSkipToday(KEY_QUERY_ACCOUNT)) {
+                Log.debug(TAG, "信用2101[账户查询今日已放弃，跳过]")
+                return
+            }
             Log.record(TAG, "执行开始 信用2101")
             this.mCreditTaskOptions = credittaskoptions
             this.mCreditEventOptions = creditoptions

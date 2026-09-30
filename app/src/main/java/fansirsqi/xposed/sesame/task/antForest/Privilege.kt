@@ -3,7 +3,7 @@ package fansirsqi.xposed.sesame.task.antForest
 import fansirsqi.xposed.sesame.data.Status
 import fansirsqi.xposed.sesame.task.DailyTaskLogPolicy
 import fansirsqi.xposed.sesame.util.Log
-import fansirsqi.xposed.sesame.util.RepeatFailureGuard
+import fansirsqi.xposed.sesame.task.RepeatFailureGuard
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject

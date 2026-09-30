@@ -1,9 +1,9 @@
-package fansirsqi.xposed.sesame.util
+package fansirsqi.xposed.sesame.task
 
 import fansirsqi.xposed.sesame.data.Status
 import fansirsqi.xposed.sesame.model.RepeatFailureKind
 import fansirsqi.xposed.sesame.model.RepeatFailurePolicy
-import fansirsqi.xposed.sesame.task.DailyOnceAudit
+import fansirsqi.xposed.sesame.util.Log
 import fansirsqi.xposed.sesame.util.maps.UserMap
 
 /**
@@ -45,6 +45,11 @@ object RepeatFailureGuard {
      */
     @JvmStatic
     fun recordFailure(key: String, displayName: String, vararg hints: String?): Boolean {
+        // ⚠️ 安全验证响应与"空响应"占位**不计入预算**：它们不是业务失败，
+        // 而验证是"暂停 + TTL 自愈"、离线是"自愈后应重试"。若把它们算进去，
+        // 几轮之后就会写出"该功能今天不再尝试"——项目硬规则 3 明确列为禁忌。
+        if (!RepeatFailurePolicy.isCountable(*hints)) return false
+
         val count = try {
             Status.markFailureToday(key)
         } catch (t: Throwable) {

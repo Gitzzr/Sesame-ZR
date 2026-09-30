@@ -615,7 +615,7 @@ readAll(userId, stallTimeoutMinutes, now): List<TaskHealthSnapshot>  // 界面�
 
 ---
 
-## J. 重复失败放弃（`model/RepeatFailurePolicy` + `util/RepeatFailureGuard`）
+## J. 重复失败放弃（`model/RepeatFailurePolicy` + `task/RepeatFailureGuard`）
 
 同一目标**当天失败到上限（5 次）就停止尝试**，用于收敛「每轮都失败、当天从未成功」的调用；
 完整限制清单见 [`docs/failure-give-up.md`](failure-give-up.md)。
@@ -624,14 +624,17 @@ readAll(userId, stallTimeoutMinutes, now): List<TaskHealthSnapshot>  // 界面�
 // 纯判定（可单测，无 Android 依赖）
 RepeatFailurePolicy.DAILY_FAILURE_LIMIT                  // 5
 RepeatFailurePolicy.kindOf(vararg hints: String?): RepeatFailureKind   // DETERMINISTIC / TRANSIENT / UNKNOWN
+RepeatFailurePolicy.isCountable(vararg hints: String?): Boolean        // 安全验证 / 空响应 → false（不计入）
 RepeatFailurePolicy.shouldGiveUp(failureCountToday: Int): Boolean
 
-// 接线（读写 Status 当天计数 + 播报 + 台账）
+// 接线（读写 Status 当天计数 + 播报 + 台账）；放在 task 包，避免 util → task 的分层倒置
 RepeatFailureGuard.shouldSkipToday(key: String): Boolean
 RepeatFailureGuard.recordFailure(key: String, displayName: String, vararg hints: String?): Boolean
 ```
 
 计数落在 `config/<uid>/status.json` 的 `failureCountTodayList`（跨天随 `unload()` 清零）。
 **⚠️ 类别只影响措辞不影响阈值**：不可用类同样是"当天放弃"而非退避。
+**⚠️ 安全验证（`RPC_VERIFICATION_REQUIRED`）与空响应（`EMPTY_RPC_RESPONSE`）一律不计入** ——
+否则会写成"该功能今天不再尝试"，违反项目硬规则 3。完整限制见该文档 §3。
 
 ---

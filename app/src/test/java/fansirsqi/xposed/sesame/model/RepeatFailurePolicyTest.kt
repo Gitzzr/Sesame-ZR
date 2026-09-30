@@ -38,10 +38,6 @@ class RepeatFailurePolicyTest {
             RepeatFailureKind.DETERMINISTIC,
             RepeatFailurePolicy.kindOf("会员任务结算失败: 去签名设计#任务还没有完成")
         )
-        assertEquals(
-            RepeatFailureKind.DETERMINISTIC,
-            RepeatFailurePolicy.kindOf("返回为空或非 SUCCESS")
-        )
     }
 
     @Test
@@ -87,6 +83,41 @@ class RepeatFailurePolicyTest {
             RepeatFailureKind.UNKNOWN,
             RepeatFailurePolicy.kindOf("某种从没见过的新错误")
         )
+    }
+
+    @Test
+    fun `判定表的每一条判据都按文档归类`() {
+        // 整表遍历：避免"文档写了、代码里其实没人测"的漂移（文档 §4 的表格与这两张表一一对应）
+        RepeatFailurePolicy.DETERMINISTIC_HINTS.forEach { hint ->
+            assertEquals(
+                "确定性判据未生效: $hint",
+                RepeatFailureKind.DETERMINISTIC,
+                RepeatFailurePolicy.kindOf("resultCode=$hint"),
+            )
+            assertTrue("确定性判据不应被当作不可计数: $hint", RepeatFailurePolicy.isCountable(hint))
+        }
+        RepeatFailurePolicy.TRANSIENT_HINTS.forEach { hint ->
+            assertEquals(
+                "不可用判据未生效: $hint",
+                RepeatFailureKind.TRANSIENT,
+                RepeatFailurePolicy.kindOf("resultDesc=$hint"),
+            )
+        }
+    }
+
+    @Test
+    fun `安全验证与空响应不计入失败预算`() {
+        // 这两个是"链路当下不可用/需人工验证"，不是业务失败：
+        // 计入就会在几轮后写出"该功能今天不再尝试"，而项目硬规则 3 明确把它列为禁忌。
+        val verification = """{"success":false,"resultCode":"RPC_VERIFICATION_REQUIRED","resultDesc":"触发安全验证，请人工验证后继续"}"""
+        val empty = """{"success":false,"resultCode":"EMPTY_RPC_RESPONSE","resultDesc":"RPC返回为空"}"""
+
+        assertFalse(RepeatFailurePolicy.isCountable(verification))
+        assertFalse(RepeatFailurePolicy.isCountable(empty))
+        assertTrue(RepeatFailurePolicy.isCountable("""{"resultCode":"PARAM_ILLEGAL"}"""))
+        // 判不出来时按"可计数"：宁可多记，也不要因为字段缺失而漏掉真实失败
+        assertTrue(RepeatFailurePolicy.isCountable())
+        assertTrue(RepeatFailurePolicy.isCountable(null))
     }
 
     @Test
