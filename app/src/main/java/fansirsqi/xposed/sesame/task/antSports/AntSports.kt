@@ -610,6 +610,9 @@ class AntSports : ModelTask() {
             var hasCompletedTask = false
 
             for (i in 0 until recBubbleList.length()) {
+                // 单次调用里会逐个 bubble 提交失败：中途达到上限就停，
+                // 否则计数会从 3 直接跳到 7，而播报只认"恰好等于上限"（会丢掉播报与台账）
+                if (RepeatFailureGuard.shouldSkipToday(KEY_ENERGY_BUBBLE)) break
                 val bubble = recBubbleList.optJSONObject(i) ?: continue
 
                 val id = bubble.optString("id")

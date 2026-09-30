@@ -720,7 +720,7 @@ tag 索引、错误行集合全部保持 `<Long>` 不变；打包值天然按 (�
 
 | ID | 显示名 | 埋点位置 |
 | --- | --- | --- |
-| `forest.main` | 森林主任务 | `AntForest` 一轮的 `onStart` / `onSuccess` / `onFailure` |
+| `forest.main` | 森林主任务 | `AntForest` 一轮的 `onStart` / `onSuccess` / `onFailure`，**外加每个相位边界（`runSuspend` 的 `phase()`）与每次收好友的 `onProgress`** |
 | `forest.collect` | 收能量 | `AntForest.collectEnergy` 的 `onStart` / `onProgress`（按好友） / `onSuccess` |
 | `forest.waiting` | 蹲点收取 | `EnergyWaitingManager` 的 `onWaiting` / 完成 / 终止 / 重试 |
 
@@ -733,6 +733,9 @@ tag 索引、错误行集合全部保持 `<Long>` 不变；打包值天然按 (�
    自动处置（类似 `StallActionPolicy`）留给以后，且必须有用户开关。
 2. **状态变化才写日志，进展事件节流落盘**（`MIN_WRITE_INTERVAL_MS = 3s`）。收能量是按好友逐个
    `onProgress` 的，不节流就会按人写一次文件、按人打一行日志。
+   ⚠️ 反过来也要注意：**进展信号必须覆盖"整轮耗时"** —— `forest.main` 一轮可能跑 30+ 分钟，
+   只在整轮结束时打一个点，会让面板在 5 分钟后误报「卡住」（2026-10-01 实测），
+   所以它同时接收相位级（`phase()`）与按好友（`collectEnergy` 回调）两类进展。
 3. **`blockedReason` 必须跟着落盘**。它是**全局**的（离线拦的是所有 RPC），但只活在内存里；
    不给每一项带上再写出去，界面就只看到「卡住」而看不到「已暂停」—— 这两者处置方式完全不同
    （等自愈 vs 人工过验证），显示错会把排查往错误方向带。

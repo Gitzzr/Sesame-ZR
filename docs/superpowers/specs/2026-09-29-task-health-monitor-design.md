@@ -77,7 +77,7 @@ return if (now - max(lastProgressAt, lastStartAt) > stallTimeoutMs) STALLED else
 
 | ID | 显示名 | 埋点位置 |
 | --- | --- | --- |
-| `forest.main` | 森林主任务 | `AntForest` 一轮的开始 / 成功 / 失败 |
+| `forest.main` | 森林主任务 | `AntForest` 一轮的开始 / 成功 / 失败，外加**每个相位边界**与**按好友收能量**的进展（2026-10-01 追加：只留整轮结束一个点会误报「卡住」） |
 | `forest.collect` | 收能量 | `AntForest.collectEnergy` 的开始 / 按好友进展 / 成功 |
 | `forest.waiting` | 蹲点收取 | `EnergyWaitingManager` 的等待 / 完成 / 终止 / 重试 |
 

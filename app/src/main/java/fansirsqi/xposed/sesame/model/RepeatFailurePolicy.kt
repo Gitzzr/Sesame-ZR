@@ -68,6 +68,7 @@ object RepeatFailurePolicy {
         "任务还没有完成",              // 会员任务结算：条件未满足
         "quota_user_not_enough",      // 已达上限
         "不可重试",                    // 运动球任务：CAMP_TRIGGER_ERROR「海豚活动触发不可重试错误」
+        "camp_trigger_error",         // 同上：错误码本身也认（服务端改文案时不至于退化成"未判定"）
         // 当前没有接入点传进来，为同类场景预留（出处见 ResChecker / ForestDrawTaskPolicy）
         "不支持rpc完成",
     )

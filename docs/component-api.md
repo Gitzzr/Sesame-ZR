@@ -587,7 +587,7 @@ readAll(userId, stallTimeoutMinutes, now): List<TaskHealthSnapshot>  // 界面�
 
 | ID | 显示名 | 埋点位置 |
 | --- | --- | --- |
-| `forest.main` | 森林主任务 | `AntForest` 一轮的开始/成功/失败 |
+| `forest.main` | 森林主任务 | `AntForest` 一轮的 `onStart` / `onSuccess` / `onFailure`，**外加每个相位边界与每次收好友的 `onProgress`** |
 | `forest.collect` | 收能量 | `AntForest.collectEnergy` |
 | `forest.waiting` | 蹲点收取 | `EnergyWaitingManager` |
 
