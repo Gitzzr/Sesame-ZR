@@ -870,6 +870,11 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             usePropBeforeCollectEnergy(selfId)
             phase("使用自己道具卡")
             executeEnergyRainIfNeeded(tc)
+            // 能量雨是最可能"单相位超阈值"的一段（最多 10 局、每局 8–16 秒随机延迟），
+            // 它内部拿不到 runSuspend 的局部 phase()，这里补一次主任务进展
+            fansirsqi.xposed.sesame.task.TaskHealthMonitor.onProgress(
+                fansirsqi.xposed.sesame.task.TaskHealthMonitor.ID_FOREST_MAIN, "能量雨"
+            )
 
             // -------------------------------
             // 收好友能量

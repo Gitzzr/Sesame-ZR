@@ -567,16 +567,22 @@ TaskHealthPolicy.describe(snapshot, state, now): String   // 一行说明
 判定优先级：**被暂停 > 卡住 > 记录的状态**。被暂停时不能报卡住 —— 前者等自愈、后者要人工验证。
 「卡住」只看**无进展**（`max(lastProgressAt, lastStartAt)` 距今超阈值），不看有没有失败。
 
-⚠️ **进度信号要覆盖"整轮耗时"**：`forest.main` 一轮可能跑 30+ 分钟（收能量 + 蹲点等待），
-所以除了整轮结束的 `onSuccess`，**每收一个好友的能量也会刷新它的进度**
-（`AntForest` 的收能量回调里同时打 `ID_COLLECT` 与 `ID_FOREST_MAIN`）。
+⚠️ **进度信号要用两级逼近"整轮耗时"**：`forest.main` 一轮可能跑 30+ 分钟
+（查道具 / 能量雨 / 收能量 / 浇水 / 赠道具等相位；**蹲点是独立后台协程，主任务不等它**），
+所以除了整轮结束的 `onSuccess`，还有两类进展信号：
+
+1. **相位级**：`runSuspend` 里的局部函数 `phase(name)` —— 每个相位结束时同时做耗时统计与
+   `onProgress(ID_FOREST_MAIN, name)`（原 `tc.countDebug(...)` 全部改走它）；
+2. **按好友级**：收能量回调里除了 `ID_COLLECT`，也刷一次 `ID_FOREST_MAIN`。
+
 只留"整轮结束"一个点会让面板在 5 分钟后误报「卡住」（2026-10-01 实测）。
+注意这只保证"相位之间"有信号：**若某个单相位自身超过阈值，仍会短暂显示卡住**（已知边界）。
 
 ### H2. `TaskHealthMonitor` —— 宿主侧入口
 
 ```kotlin
 onStart(id, detail)      // 进入进行中
-onProgress(id, detail)   // 有进展（按好友收能量时逐人调用，落盘节流 3s）
+onProgress(id, detail)   // 有进展（收能量时逐好友、主任务还按相位边界调用；落盘节流 3s）
 onWaiting(id, detail)    // 等能量成熟 —— 正常状态，不算卡住
 onSuccess(id, detail)    // 成功，清零 consecutiveFailures
 onFailure(id, detail)    // 失败，累加 consecutiveFailures
