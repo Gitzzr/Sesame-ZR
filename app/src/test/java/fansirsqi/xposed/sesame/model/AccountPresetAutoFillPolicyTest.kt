@@ -87,31 +87,71 @@ class AccountPresetAutoFillPolicyTest {
 
     @Test
     fun `全是小号档时提示说明并引导手动选择`() {
-        val hint = AccountPresetAutoFillPolicy.hintFor(
-            listOf(candidate("2088922617455078", PresetTier.ALT))
+        val hint = requireNotNull(
+            AccountPresetAutoFillPolicy.hintFor(
+                listOf(candidate("2088922617455078", PresetTier.ALT))
+            )
         )
 
-        assertNotNull(hint)
-        val text = requireNotNull(hint)
+        assertEquals(listOf("2088922617455078"), hint.uidsByTier[PresetTier.ALT])
+        assertTrue(hint.unknownTierUids.isEmpty())
+
+        val text = hint.render { it }   // 测试里用恒等渲染，避免引入 UserMap 依赖
         assertTrue(text.contains("2088922617455078"))
         assertTrue(text.contains("小号档"))
         assertTrue(text.contains("请手动点选"))
     }
 
     @Test
-    fun `无记录与小号档混合时提示里都要说清`() {
-        val hint = AccountPresetAutoFillPolicy.hintFor(
-            listOf(
-                candidate("alt-uid", PresetTier.ALT),
-                candidate("no-record-uid", null),
+    fun `全部候选都没有档位记录时也要说清原因`() {
+        // 同类设备上最常见的形态：本机另一个账号从未配过任何档位（没有记录文件）
+        val hint = requireNotNull(
+            AccountPresetAutoFillPolicy.hintFor(
+                listOf(candidate("no-record-uid", null))
             )
         )
 
-        assertNotNull(hint)
-        val text = requireNotNull(hint)
+        assertTrue(hint.uidsByTier.isEmpty())
+        assertEquals(listOf("no-record-uid"), hint.unknownTierUids)
+
+        val text = hint.render { it }
+        assertTrue(text.contains("no-record-uid"))
+        assertTrue(text.contains("没有档位记录"))
+        assertTrue(text.contains("请手动点选"))
+    }
+
+    @Test
+    fun `无记录与小号档混合时提示里都要说清`() {
+        val hint = requireNotNull(
+            AccountPresetAutoFillPolicy.hintFor(
+                listOf(
+                    candidate("alt-uid", PresetTier.ALT),
+                    candidate("no-record-uid", null),
+                )
+            )
+        )
+
+        assertEquals(listOf("alt-uid"), hint.uidsByTier[PresetTier.ALT])
+        assertEquals(listOf("no-record-uid"), hint.unknownTierUids)
+
+        val text = hint.render { it }
         assertTrue(text.contains("alt-uid"))
         assertTrue(text.contains("小号档"))
         assertTrue(text.contains("no-record-uid"))
         assertTrue(text.contains("没有档位记录"))
+    }
+
+    @Test
+    fun `提示渲染使用调用方给的账号名而不是原始 uid`() {
+        // UI 会传 AccountPreset::displayName，策略侧不该把 16 位 uid 直接给用户看
+        val hint = requireNotNull(
+            AccountPresetAutoFillPolicy.hintFor(
+                listOf(candidate("2088922617455078", PresetTier.ALT))
+            )
+        )
+
+        val text = hint.render { "梓锐" }
+        assertTrue(text.contains("梓锐"))
+        assertFalse(text.contains("2088922617455078"))
     }
 }

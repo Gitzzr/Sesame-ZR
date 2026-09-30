@@ -6,6 +6,32 @@ package fansirsqi.xposed.sesame.model
 internal data class PresetAutoFillCandidate(val uid: String, val tier: PresetTier?)
 
 /**
+ * 「没能自动预置」的原因（结构化，供 UI 渲染）。
+ *
+ * @param uidsByTier   档位 → 该档位下的本机账号（不含 [PresetTier.MAIN]，因为有 MAIN 就不会产生提示）
+ * @param unknownTierUids 没有任何档位记录的本机账号
+ */
+internal data class AutoFillHint(
+    val uidsByTier: Map<PresetTier, List<String>>,
+    val unknownTierUids: List<String>,
+) {
+    /**
+     * 渲染成一句话。账号名交给调用方（UI 传 `AccountPreset::displayName`），
+     * 测试里传恒等函数即可，从而不把 `UserMap` 依赖带进策略。
+     */
+    fun render(nameOf: (String) -> String): String = buildString {
+        append("未自动预置好友：")
+        for ((tier, uids) in uidsByTier) {
+            append("本机账号 ${uids.joinToString("、", transform = nameOf)} 是${tier.label}档；")
+        }
+        if (unknownTierUids.isNotEmpty()) {
+            append("账号 ${unknownTierUids.joinToString("、", transform = nameOf)} 没有档位记录；")
+        }
+        append("请手动点选要保护的大号。")
+    }
+}
+
+/**
  * 账号档位「开箱即用」预置判定。
  *
  * ## 为什么要有它（2026-09-30 K50 实测 bug）
@@ -35,21 +61,26 @@ internal object AccountPresetAutoFillPolicy {
         candidates.filter { shouldPreselect(it.tier) }.map { it.uid }
 
     /**
-     * 没找到可预置的大号时，给用户一句说明，避免误以为"功能没生效"。
+     * 没找到可预置的大号时，告诉用户"为什么没预置"。
+     *
+     * 返回**结构化数据**而不是拼好的文案：本策略要保持纯 JVM 可测（不依赖 `UserMap`），
+     * 而给用户看的账号名要靠 UI 层的 `AccountPreset.displayName` 渲染 —— 直接摆 16 位 uid
+     * 与同一功能里其它位置（确认页用「显示名(uid)」）风格不一致。
      *
      * 无候选、或候选里已有可预置的大号时返回 null（不需要提示）。
      */
-    fun hintFor(candidates: List<PresetAutoFillCandidate>): String? {
+    fun hintFor(candidates: List<PresetAutoFillCandidate>): AutoFillHint? {
         if (candidates.isEmpty()) return null
         if (candidates.any { shouldPreselect(it.tier) }) return null
 
-        val alts = candidates.filter { it.tier == PresetTier.ALT }.map { it.uid }
-        val unknown = candidates.filter { it.tier == null }.map { it.uid }
-        return buildString {
-            append("未自动预置好友：")
-            if (alts.isNotEmpty()) append("本机账号 ${alts.joinToString("、")} 是小号档；")
-            if (unknown.isNotEmpty()) append("账号 ${unknown.joinToString("、")} 没有档位记录；")
-            append("请手动点选要保护的大号。")
+        // 按 PresetTier 穷举分桶：将来新增档位枚举值时，原因会自动出现在提示里，
+        // 不会静默退化成"没说原因"。
+        val byTier = PresetTier.entries.associateWith { tier ->
+            candidates.filter { it.tier == tier }.map { it.uid }
         }
+        return AutoFillHint(
+            uidsByTier = byTier.filterValues { it.isNotEmpty() },
+            unknownTierUids = candidates.filter { it.tier == null }.map { it.uid },
+        )
     }
 }

@@ -173,7 +173,9 @@ object AccountPresetMenu {
             }
             AccountPresetAutoFillPolicy.preselectTargets(candidates)
                 .forEach { uid -> state.selection[uid] = LinkedHashSet(recommended) }
+            // 账号名在 UI 层渲染（策略侧不依赖 UserMap），避免把 16 位 uid 直接摆给用户
             autoFillHint = AccountPresetAutoFillPolicy.hintFor(candidates)
+                ?.render(AccountPreset::displayName)
         }
 
         showFriendDialog(context, account, tier, isMainList, friends, state, autoFillHint, onApplied)
@@ -229,6 +231,9 @@ object AccountPresetMenu {
                     textSize = 13f
                     setTextColor(0xFFB45309.toInt())
                     setPadding(0, 0, 0, pad)
+                    // 多账号叠加时文案会长，限行避免把对话框撑高、把底部按钮顶出可视区
+                    maxLines = 3
+                    ellipsize = android.text.TextUtils.TruncateAt.END
                 })
             }
             addView(
