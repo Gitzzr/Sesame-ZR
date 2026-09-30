@@ -1,6 +1,7 @@
 package fansirsqi.xposed.sesame.task
 
 import com.fasterxml.jackson.core.type.TypeReference
+import fansirsqi.xposed.sesame.hook.ApplicationHook
 import fansirsqi.xposed.sesame.util.Files
 import fansirsqi.xposed.sesame.util.JsonUtil
 import fansirsqi.xposed.sesame.util.Log
@@ -81,14 +82,20 @@ object TaskHealthMonitor {
         snap.copy(lastProgressAt = now, detail = detail.ifEmpty { snap.detail })
     }
 
-    /** 进入等待（例如等能量成熟/等蹲点时间到）——这是正常状态，不算卡住 */
+    /**
+     * 进入等待（例如等能量成熟/等蹲点时间到）——这是正常状态，不算卡住。
+     *
+     * @param expectedAt 预计该动作的时刻（毫秒）；>0 时判定会以它为基准（过了它才可能算卡住），
+     *                   0 表示没有预计时间，退回"按无进展判定"。
+     */
     @JvmStatic
     @JvmOverloads
-    fun onWaiting(id: String, detail: String = "") = update(id) { snap, now ->
+    fun onWaiting(id: String, detail: String = "", expectedAt: Long = 0L) = update(id) { snap, now ->
         snap.copy(
             state = TaskHealthState.WAITING,
             lastProgressAt = now,
-            detail = detail
+            detail = detail,
+            expectedAt = expectedAt
         )
     }
 
@@ -187,6 +194,7 @@ object TaskHealthMonitor {
         // 已经跑完的状态抹成「未开始」—— 而「重启支付宝看看」正是最常用的排查动作
         val now = System.currentTimeMillis()
         syncDailyState(now)
+        healStaleBlock()
         val before = tasks[id] ?: TaskHealthSnapshot(id = id, label = LABELS[id] ?: id)
         val after = mutate(before, now)
         tasks[id] = after
@@ -216,7 +224,10 @@ object TaskHealthMonitor {
         val known = tasks.values.associateBy { it.id }
         return ORDER.map { id ->
             val snap = known[id] ?: TaskHealthSnapshot(id = id, label = LABELS[id] ?: id)
-            if (blockedReason.isEmpty()) snap else snap.copy(blockedReason = blockedReason)
+            // ⚠️ **始终**以全局值覆盖（为空就写空）。
+            // 旧写法是"全局为空时保留快照自带的值"，于是解除离线后清不掉、留成永久残影 ——
+            // 界面按「被暂停优先」显示「已暂停（离线中）」，而任务其实在跑（2026-10-01 实测）。
+            snap.copy(blockedReason = blockedReason)
         }
     }
 
@@ -238,11 +249,25 @@ object TaskHealthMonitor {
         return latest ?: Files.getTargetFileofUser(userId, FILE_NAME)
     }
 
+    /**
+     * 自愈：模块**在线**时不该留着「暂停原因」。
+     *
+     * 暂停原因会落盘并被跨进程接续，所以只靠「解除时清一次」不够稳（进程在暂停期间被杀、
+     * 或接续路径变化都会留残影）。这里给一条不变量：**在线 ⇒ 没有任何暂停原因**。
+     */
+    private fun healStaleBlock() {
+        if (!TaskHealthPolicy.shouldClearStaleBlock(blockedReason, ApplicationHook.offline)) return
+        val stale = blockedReason
+        blockedReason = ""
+        Log.record(TAG, "已清除陈旧的暂停标记：$stale（当前并未离线）")
+    }
+
     /** 立即落盘（状态变化、暂停标记变化时调用） */
     private fun persistNow() {
         val now = System.currentTimeMillis()
         lastWriteAt.set(now)
         syncDailyState(now)
+        healStaleBlock()
         runCatching {
             val uid = UserMap.currentUid ?: return
             val file = Files.getTargetFileofUser(uid, FILE_NAME) ?: return
@@ -277,8 +302,24 @@ object TaskHealthMonitor {
         if (loadedDay == today) return
         loadedDay = today
         val kept = readStored(UserMap.currentUid).filter { TaskHealthPolicy.belongsToToday(it, now) }
+
+        // 跨进程接续「暂停原因」：它写在每一项里（写盘时统一覆盖），重启后从盘上取回。
+        // 取回前后都要过一遍自愈校验 —— 若此刻并不离线，说明是残影，宁可丢掉也不误报「已暂停」。
+        if (blockedReason.isEmpty()) {
+            val carried = kept.firstOrNull { it.blockedReason.isNotEmpty() }?.blockedReason.orEmpty()
+            if (carried.isNotEmpty()) {
+                if (TaskHealthPolicy.shouldClearStaleBlock(carried, ApplicationHook.offline)) {
+                    Log.record(TAG, "丢弃陈旧的暂停标记：$carried（当前并未离线）")
+                } else {
+                    blockedReason = carried
+                }
+            }
+        }
+
         tasks.clear()
-        kept.forEach { snap -> tasks[snap.id] = snap.copy(label = LABELS[snap.id] ?: snap.id) }
+        // 条目里的 blockedReason 只是"写盘时的快照"（写盘时统一覆盖），内存里不再自带，
+        // 避免它成为第二个真相来源
+        kept.forEach { snap -> tasks[snap.id] = snap.copy(label = LABELS[snap.id] ?: snap.id, blockedReason = "") }
     }
 
     /** 读回磁盘上已存的快照（读不出来就当没有，不影响主流程） */
