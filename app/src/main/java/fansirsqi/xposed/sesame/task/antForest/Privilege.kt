@@ -163,7 +163,8 @@ object Privilege {
             val resultDesc = result.optString("resultDesc", "查询失败")
             RepeatFailureGuard.recordFailure(
                 KEY_STUDENT_CHECK_IN, "青春特权签到查询",
-                result.optString("resultCode"), resultDesc,
+                // 同上：整段响应一起传，保证风控/空响应能被豁免判据看到
+                result.optString("resultCode"), resultDesc, result.toString(),
             )
             Log.record("$PREFIX_SIGN 查询失败：$resultDesc")
             recordPrivilege(DailyTaskLogPolicy.ACTION_CHECKIN, "青春特权签到", "查询", false, resultDesc)

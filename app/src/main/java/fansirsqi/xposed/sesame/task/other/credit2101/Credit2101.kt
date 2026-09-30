@@ -404,10 +404,8 @@ object Credit2101 {
 
     /** 查询账户详情并解析为 AccountInfo */
     private fun queryAccountAsset(): AccountInfo? {
-        // 账户查询失败则整个 2101 流程无事可做（2026-09-30 实测 39 轮全失败）：
-        // 当天失败到上限后不再发请求，避免几十次无效调用与日志噪音
-        if (RepeatFailureGuard.shouldSkipToday(KEY_QUERY_ACCOUNT)) return null
-
+        // 这里只记失败、不做"是否已放弃"的判断：判断统一在 doCredit2101 入口，
+        // 否则会出现两种不同的跳过行为（入口静默、这里却会写一条 error）
         val resp = Credit2101RpcCall.queryAccountAsset()
         if (!ResChecker.checkRes(TAG, resp)) {
             RepeatFailureGuard.recordFailure(KEY_QUERY_ACCOUNT, "信用2101 账户查询", resp)

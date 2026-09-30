@@ -29,8 +29,14 @@ enum class PauseRestoreAction {
  */
 object VerificationPausePolicy {
 
-    /** 服务端真正要求人工安全验证时携带的文案。 */
-    private val VERIFICATION_TEXTS = listOf(
+    /**
+     * 服务端真正要求人工安全验证时携带的文案。
+     *
+     * `internal` 是为了让 `RepeatFailurePolicyTest` 能断言
+     * 「风控文案 ⊆ 不计入失败预算的判据」—— 两处各写一份清单会漂移，
+     * 而漂移的后果是"风控响应被计入失败预算 → 写出今天不再尝试"（违反硬规则 3）。
+     */
+    internal val VERIFICATION_TEXTS = listOf(
         // 「触发安全验证」是实测日志里出现频次最高的措辞：AntForest 记录的
         // `刷新背包失败: 触发安全验证，请人工验证后继续` 正是它（4 天 8552 次），
         // 但此前不在本列表中 —— 只靠错误码会漏判。

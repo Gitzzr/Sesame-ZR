@@ -1,5 +1,6 @@
 package fansirsqi.xposed.sesame.model
 
+import fansirsqi.xposed.sesame.hook.VerificationPausePolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -8,8 +9,8 @@ import org.junit.Test
 /**
  * 「同一目标当天失败到上限就停止尝试」的契约测试。
  *
- * 判据取值来自真机日志里**实际出现过**的服务端回应（见 `docs/failure-give-up.md` 判定表），
- * 新增/修改判据时请同步更新文档与本文。
+ * 判据取值来自**服务端回应本身**的字段/文案（含少量"当前无接入点、为同类场景预留"的判据），
+ * 见 `docs/failure-give-up.md` 判定表；新增/修改判据时请同步更新文档与本文。
  */
 class RepeatFailurePolicyTest {
 
@@ -106,18 +107,44 @@ class RepeatFailurePolicyTest {
     }
 
     @Test
-    fun `安全验证与空响应不计入失败预算`() {
-        // 这两个是"链路当下不可用/需人工验证"，不是业务失败：
-        // 计入就会在几轮后写出"该功能今天不再尝试"，而项目硬规则 3 明确把它列为禁忌。
-        val verification = """{"success":false,"resultCode":"RPC_VERIFICATION_REQUIRED","resultDesc":"触发安全验证，请人工验证后继续"}"""
-        val empty = """{"success":false,"resultCode":"EMPTY_RPC_RESPONSE","resultDesc":"RPC返回为空"}"""
+    fun `不计入的判据每一条都生效`() {
+        // 逐条遍历：单条判据失效（例如文案被改）必须在这里红，而不是线上静默失效
+        RepeatFailurePolicy.NON_COUNTED_HINTS.forEach { hint ->
+            assertFalse("豁免判据未生效: $hint", RepeatFailurePolicy.isCountable("resultCode=$hint"))
+        }
+    }
 
-        assertFalse(RepeatFailurePolicy.isCountable(verification))
-        assertFalse(RepeatFailurePolicy.isCountable(empty))
+    @Test
+    fun `仅凭错误码或仅凭文案都能识出安全验证`() {
+        // 拆成两个样本：只带码、只带文案。合并成一个样本会让"删掉任一判据仍然绿"（假锁死）
+        val onlyCode = """{"success":false,"resultCode":"RPC_VERIFICATION_REQUIRED"}"""
+        val onlyText = """{"success":false,"errorMessage":"为了保障您的操作安全，请进行验证后继续。"}"""
+        val emptyResponse = """{"success":false,"resultCode":"EMPTY_RPC_RESPONSE"}"""
+
+        assertFalse(RepeatFailurePolicy.isCountable(onlyCode))
+        assertFalse(RepeatFailurePolicy.isCountable(onlyText))
+        assertFalse(RepeatFailurePolicy.isCountable(emptyResponse))
         assertTrue(RepeatFailurePolicy.isCountable("""{"resultCode":"PARAM_ILLEGAL"}"""))
         // 判不出来时按"可计数"：宁可多记，也不要因为字段缺失而漏掉真实失败
         assertTrue(RepeatFailurePolicy.isCountable())
         assertTrue(RepeatFailurePolicy.isCountable(null))
+    }
+
+    @Test
+    fun `风控暂停用的每一条文案都被排除在失败预算之外`() {
+        // 交叉断言：RepeatFailurePolicy 的豁免清单与 VerificationPausePolicy 的文案是两处维护，
+        // 一旦漂移（例如风控加了新文案），风控响应就会被计入失败预算 → 写出"今天不再尝试"，
+        // 那是项目硬规则 3 的禁忌。这里把"风控文案 ⊆ 不计入"钉死。
+        VerificationPausePolicy.VERIFICATION_TEXTS.forEach { text ->
+            assertFalse(
+                "风控文案未被排除: $text",
+                RepeatFailurePolicy.isCountable(text)
+            )
+        }
+        assertFalse(
+            "风控错误码未被排除",
+            RepeatFailurePolicy.isCountable(VerificationPausePolicy.VERIFICATION_ERROR_CODE)
+        )
     }
 
     @Test

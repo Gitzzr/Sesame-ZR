@@ -67,9 +67,8 @@ object RepeatFailurePolicy {
         "模板不存在",
         "任务还没有完成",              // 会员任务结算：条件未满足
         "quota_user_not_enough",      // 已达上限
-        // 以下两条当前没有接入点传进来，为同类场景预留（不在文档判定表里当"已生效"列）
+        // 当前没有接入点传进来，为同类场景预留（出处见 ResChecker / ForestDrawTaskPolicy）
         "不支持rpc完成",
-        "not_support_rpc",
     )
 
     /**
@@ -98,8 +97,15 @@ object RepeatFailurePolicy {
      * 判据与 `hook/RequestManager.kt` 里的常量对齐。
      */
     internal val NON_COUNTED_HINTS = listOf(
+        // 风控：错误码 + 服务端真实文案（与 VerificationPausePolicy.VERIFICATION_TEXTS 保持同源，
+        // 由 RepeatFailurePolicyTest 的交叉断言锁死 —— 宿主会把**原始风控响应**直接回给调用方，
+        // 只认错误码会漏判，见 VerificationPausePolicy 的注释）
         "rpc_verification_required",
         "触发安全验证",
+        "请进行验证后继续",
+        "为保障您的正常访问",
+        "为了保障您的操作安全",
+        // 链路不可用：RPC 返回为空（离线 / 网络抖动 / 占位）
         "empty_rpc_response",
     )
 

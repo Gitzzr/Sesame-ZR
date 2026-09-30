@@ -1211,7 +1211,10 @@ class AntMember : ModelTask() {
             if (!ResChecker.checkRes("$TAG.triggerSignFloatingBall", response)) {
                 RepeatFailureGuard.recordFailure(
                     boxKey, "会员宝箱",
+                    // 连整段响应一起传：风控/空响应可能只在 error/errorMessage 里，
+                    // 只传 resultCode/resultDesc 会得到空串，导致豁免判不出来
                     response.optString("resultCode"), response.optString("resultDesc"),
+                    response.toString(),
                 )
                 return
             }

@@ -41,14 +41,21 @@ object RepeatFailureGuard {
      * @param key         稳定标识（建议 `模块::动作`，如 `credit2101::queryAccountAsset`）
      * @param displayName 给用户看的名字（台账与日志用，避免出现裸 uid / 类名）
      * @param hints       用于归类失败类别的原始文本（错误码 / resultDesc / 整段响应）
-     * @return 是否**恰好**在本次达到上限（调用方一般不需要用它，播报已在这里完成）
+     * @return 是否**恰好**在本次达到上限（调用方一般不需要用它，播报已在这里完成）。
+     *         返回 `false` 有两种含义：① 还在累计中；② 本次**未计入**（安全验证/空响应被豁免，
+     *         此时会留一行 debug 便于区分"没失败"与"失败了但被豁免"）。
      */
     @JvmStatic
     fun recordFailure(key: String, displayName: String, vararg hints: String?): Boolean {
         // ⚠️ 安全验证响应与"空响应"占位**不计入预算**：它们不是业务失败，
         // 而验证是"暂停 + TTL 自愈"、离线是"自愈后应重试"。若把它们算进去，
         // 几轮之后就会写出"该功能今天不再尝试"——项目硬规则 3 明确列为禁忌。
-        if (!RepeatFailurePolicy.isCountable(*hints)) return false
+        if (!RepeatFailurePolicy.isCountable(*hints)) {
+            // 留一行 debug：否则线上无法区分"没失败"与"失败了但被豁免"，
+            // 这类静默失效（含风控文案判定漂移）会很难被发现
+            Log.debug(TAG, "失败未计入（安全验证/空响应）: $key")
+            return false
+        }
 
         val count = try {
             Status.markFailureToday(key)
