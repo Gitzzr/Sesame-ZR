@@ -75,8 +75,40 @@ class TaskHealthPolicyTest {
 
     @Test
     fun `过了预计时刻但在宽限内仍算等待`() {
-        val justPassed = snap(TaskHealthState.WAITING, expectedAt = now - 2 * 60_000L)
+        // ⚠️ progressAt 故意放到 30 分钟前：这样只有"expectedAt 参与取基准"时才会得到 WAITING。
+        // 若省略它，旧逻辑会在 lastAliveAt<=0 处直接 return WAITING，改不改都能过 —— 那是假断言。
+        val justPassed = snap(
+            TaskHealthState.WAITING,
+            progressAt = now - 30 * 60_000L,
+            expectedAt = now - 2 * 60_000L
+        )
         assertEquals(TaskHealthState.WAITING, TaskHealthPolicy.evaluate(justPassed, now, timeout5min))
+    }
+
+    @Test
+    fun `预计时刻已过但期间还有上报就不算卡住`() {
+        // 回归防护：第一版把 expectedAt 写成"优先级更高的独立规则"，
+        // expectedAt 一过期，之后的上报全被吞掉 —— 蹲点收取失败后每 5 秒一次的重试、
+        // 「已终止」的上报都不顶用，任务明明在跑却稳定显示「卡住」，比改之前更糟。
+        // 现在 expectedAt 只是"参与取最新"，被更近的上报顶掉就退回旧口径。
+        val retrying = snap(
+            TaskHealthState.WAITING,
+            progressAt = now - 30_000L,       // 30 秒前刚重试过
+            expectedAt = now - 20 * 60_000L   // 预计时刻已过 20 分钟
+        )
+        assertEquals(TaskHealthState.WAITING, TaskHealthPolicy.evaluate(retrying, now, timeout5min))
+    }
+
+    @Test
+    fun `进行中不会被残留的预计时刻豁免卡住判定`() {
+        // expectedAt 只有等待态才认：否则一条残留着"未来预计时刻"的记录，
+        // 会让一个真在跑、却 20 分钟没进展的任务永远判不出卡住。
+        val s = snap(
+            TaskHealthState.RUNNING,
+            progressAt = now - 20 * 60_000L,
+            expectedAt = now + 30 * 60_000L
+        )
+        assertEquals(TaskHealthState.STALLED, TaskHealthPolicy.evaluate(s, now, timeout5min))
     }
 
     @Test
@@ -100,8 +132,27 @@ class TaskHealthPolicyTest {
             expectedAt = now + 10 * 60_000L,
         )
         val text = TaskHealthPolicy.describe(s, TaskHealthPolicy.evaluate(s, now, timeout5min), now)
-        assertTrue(text.contains("预计"))
-        assertTrue(text.contains("收取"))
+        // 断言到具体格式而不是只含「预计」：只断言关键词时，格式被改坏（少个冒号、多个字）也照样通过
+        assertTrue(
+            "应给出「预计 HH:MM 收取」，实际：$text",
+            Regex("预计 \\d{2}:\\d{2} 收取").containsMatchIn(text)
+        )
+    }
+
+    @Test
+    fun `卡住时的说明与判定用的是同一个基准`() {
+        // 预计时刻虽已过，但之后还有更近的上报 → 基准应是那条上报，
+        // 不能出现「按 9 分钟判卡住、却按预计时刻说超了 40 分钟」的错配（describe 与 evaluate 同基准）。
+        val s = snap(
+            TaskHealthState.WAITING,
+            progressAt = now - 9 * 60_000L,
+            expectedAt = now - 40 * 60_000L
+        )
+        val state = TaskHealthPolicy.evaluate(s, now, timeout5min)
+        assertEquals(TaskHealthState.STALLED, state)
+        val text = TaskHealthPolicy.describe(s, state, now)
+        assertTrue("基准应是最近的上报，实际：$text", text.contains("已 9 分钟无进展"))
+        assertFalse("预计时刻已被顶掉，不该再按它描述，实际：$text", text.contains("已超预计收取时间"))
     }
 
     @Test

@@ -129,9 +129,27 @@ object TaskHealthMonitor {
      * 整个模块被离线/安全验证暂停。
      *
      * 与「卡住」区分开：暂停是我们自己拦下的（等自愈或人工验证），不是任务出了问题。
+     *
+     * ⚠️ **调用前置约束：必须在 [ApplicationHook.offline] 已经为 true 之后调用。**
+     *
+     * 目前唯一调用点是 `ApplicationHook.setOffline(true)`，四类暂停来源
+     * （安全验证 / 网络连续失败 / 登录超时 / 重启 Activity）都先置 `offline` 再调这里，
+     * 所以「有暂停原因」⇔「处于离线」这条等式成立，[TaskHealthPolicy.shouldClearStaleBlock]
+     * 才能只用 `offline` 一个布尔量判定。
+     *
+     * 违反这条约束不会有编译错误，但后果很隐蔽：本次调用写入的原因会在**下一个事件**
+     * （≤3 秒内的 [healStaleBlock]）被判成残影清掉并落盘，「已暂停」永远显示不出来。
+     * 因此这里一旦检测到违规就打一条 error 日志，把退化提前暴露出来，而不是让它静默失效。
      */
     @JvmStatic
     fun onBlocked(reason: String) {
+        if (!ApplicationHook.offline) {
+            Log.error(
+                TAG,
+                "⚠️ onBlocked($reason) 在未进入离线时被调用 —— 原因会被自愈逻辑当成残影清掉，" +
+                    "请确认是否漏了 setOffline(true)"
+            )
+        }
         blockedReason = reason.ifEmpty { "已暂停" }
         persistNow()
     }
@@ -224,9 +242,15 @@ object TaskHealthMonitor {
         val known = tasks.values.associateBy { it.id }
         return ORDER.map { id ->
             val snap = known[id] ?: TaskHealthSnapshot(id = id, label = LABELS[id] ?: id)
-            // ⚠️ **始终**以全局值覆盖（为空就写空）。
-            // 旧写法是"全局为空时保留快照自带的值"，于是解除离线后清不掉、留成永久残影 ——
-            // 界面按「被暂停优先」显示「已暂停（离线中）」，而任务其实在跑（2026-10-01 实测）。
+            // **始终**以全局值覆盖（为空就写空）—— 这里守的是"单一真相源"：
+            // 旧写法是"全局为空时保留快照自带的值"，那等于让每条快照自带第二个来源，
+            // 两者一旦不一致就说不清谁对。
+            //
+            // 注意：这里**不是** 2026-10-01 那个「离线残影」的根因所在。
+            // 根因在两处：[syncDailyState] 接续时把每项自带的 blockedReason 置空，
+            // 以及 [healStaleBlock] 的"在线 ⇒ 无暂停原因"自愈不变量。
+            // 这两处修完之后 `tasks` 里已不可能存着非空值，下面这行实际上是**防御性**的：
+            // 即便将来有人改坏那两处，这里也保证落盘时不会被顺带带上脏值。
             snap.copy(blockedReason = blockedReason)
         }
     }

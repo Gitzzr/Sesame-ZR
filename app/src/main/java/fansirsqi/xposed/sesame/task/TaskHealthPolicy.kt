@@ -56,7 +56,9 @@ data class TaskHealthSnapshot(
      * 目前只有蹲点收取会填：它在等能量的成熟时刻（`calculatePreciseCollectTime`），
      * 等待期间**本来就不会有进展** —— 若按"多久没进展"判卡住，蹲点等得越久越像卡住
      * （2026-10-01 实测：等待 23 分钟后被判「卡住」，而它其实正常）。
-     * 判定改为「过了预计时刻 + 宽限仍未动作」才算卡住，见 [TaskHealthPolicy.evaluate]。
+     *
+     * 它作为候选之一参与 [TaskHealthPolicy.aliveBaseOf] 的取最大值，
+     * **不是**一条优先级更高的独立规则（那样会把预计时刻之后的上报全部吞掉）。
      */
     val expectedAt: Long = 0L
 )
@@ -103,17 +105,41 @@ object TaskHealthPolicy {
         val state = snapshot.state
         if (state != TaskHealthState.RUNNING && state != TaskHealthState.WAITING) return state
 
-        // 等预计时刻的任务（蹲点收取）：基准是「该动作的时间」，不是「多久没进展」。
-        // 等待期间没有任何上报是正常的（协程在 delay 到成熟时刻），
-        // 只有**过了预计时刻 + 一个阈值宽限**还没动作，才算真卡住。
-        if (state == TaskHealthState.WAITING && snapshot.expectedAt > 0L) {
-            return if (now - snapshot.expectedAt > stallTimeoutMs) TaskHealthState.STALLED
-            else TaskHealthState.WAITING
-        }
-
-        val lastAliveAt = maxOf(snapshot.lastProgressAt, snapshot.lastStartAt)
+        val lastAliveAt = aliveBaseOf(snapshot)
         if (lastAliveAt <= 0L) return state
         return if (now - lastAliveAt > stallTimeoutMs) TaskHealthState.STALLED else state
+    }
+
+    /**
+     * 「最后一次还活着的证据」时刻（毫秒）—— [evaluate] 与 [describe] 共用同一个基准，
+     * 否则会出现「按进展判卡住、却按预计时刻算超时」的错配。
+     *
+     * 取三个候选里**最新**的那个：最近进展、最近开始、以及**预计动作时刻**（[TaskHealthSnapshot.expectedAt]）。
+     *
+     * expectedAt 混进来是有意为之：蹲点在等待期间本来就不上报，只看最近进展会「等得越久越像卡住」
+     * （2026-10-01 实测误报 23 分钟）。
+     *
+     * 但它是**参与取最大值**，而不是单独成立一条优先级更高的规则 —— 这一点踩过坑：
+     * 若写成"等待态有 expectedAt 就只看 expectedAt"，那么 expectedAt 一旦落到过去，
+     * 之后的所有上报都被吞掉（蹲点收取失败后的 5 秒重试、`已终止`的上报），
+     * 任务明明在跑却一直显示「卡住」，比改之前更糟。
+     * 参与 maxOf 之后三种情形都对：
+     *
+     * - 预计时刻在**未来** → 基准是未来，永远判不出卡住（修掉上述误报）
+     * - 预计时刻**已过且无后续动作** → 按"预计时刻 + 阈值"判卡住（保留这次的意图）
+     * - 预计时刻**已过但期间有上报** → 基准被更近的上报顶掉，退回旧口径（不该判卡住就不判）
+     *
+     * 注：`expectedAt` 只在**等待态**参与取值（见实现里的门控）—— 等待态之外的任务
+     * 不该因为快照里残留着一个旧的预计时刻而获得"未来才到期"的基准。
+     */
+    @JvmStatic
+    fun aliveBaseOf(snapshot: TaskHealthSnapshot): Long {
+        // expectedAt 只有**等待态**才认（目前也只有蹲点收取会上报它）。
+        // 这道状态门控是刻意的：若某条记录上残留着旧的 expectedAt，
+        // 一个正在进行中的任务会凭空拿到"未来才到期"的基准 → 永远判不出卡住。
+        val expectedAt =
+            if (snapshot.state == TaskHealthState.WAITING) snapshot.expectedAt else 0L
+        return maxOf(snapshot.lastProgressAt, snapshot.lastStartAt, expectedAt)
     }
 
     /** 状态的中文短标签（界面与日志共用，避免两处各写一套） */
@@ -143,13 +169,16 @@ object TaskHealthPolicy {
             parts.add("预计 ${timeOf(snapshot.expectedAt)} 收取")
         }
         if (state == TaskHealthState.STALLED) {
-            if (snapshot.expectedAt > 0L && now > snapshot.expectedAt) {
-                // 等预计时刻的那类：说"超时多久"比说"多久没进展"有意义
-                parts.add("已超预计收取时间 ${minutesOf(now - snapshot.expectedAt)} 分钟")
-            } else {
-                val lastAliveAt = maxOf(snapshot.lastProgressAt, snapshot.lastStartAt)
-                parts.add("已 ${minutesOf(now - lastAliveAt)} 分钟无进展")
-            }
+            // 与 evaluate 同一个基准（[aliveBaseOf]）：基准落在谁的头上，就按谁的口径描述
+            val lastAliveAt = aliveBaseOf(snapshot)
+            parts.add(
+                if (snapshot.expectedAt > 0L && now > snapshot.expectedAt && lastAliveAt == snapshot.expectedAt) {
+                    // 等预计时刻的那类：说"超时多久"比说"多久没进展"有意义
+                    "已超预计收取时间 ${minutesOf(now - snapshot.expectedAt)} 分钟"
+                } else {
+                    "已 ${minutesOf(now - lastAliveAt)} 分钟无进展"
+                }
+            )
         }
         if (snapshot.detail.isNotEmpty()) parts.add(snapshot.detail)
         if (snapshot.lastSuccessAt > 0L) {
@@ -206,6 +235,16 @@ object TaskHealthPolicy {
      * 界面按「被暂停优先」的规则永远显示「已暂停」，可任务其实在跑（切机重启后尤其明显）。
      *
      * 判据很直接：**只要模块此刻不在离线状态，就不该存在任何暂停原因**。
+     *
+     * ⚠️ **这条判据成立的前提是一条外部不变量**：「暂停原因」有且只有一个写入来源
+     * [TaskHealthMonitor.onBlocked]，而它必然伴随"进入离线"（详见那里的 KDoc）。
+     * 因此「此刻在暂停中」与「ApplicationHook.offline == true」当前是同一件事。
+     *
+     * **将来若新增一种不经过 `setOffline(true)` 的暂停**（例如只挡某个业务的开关），
+     * 必须同步改动这里 —— 否则那种暂停会在上报后立刻被这条判据抹掉，
+     * 界面永远显示不出来，日志里只剩一句「已清除陈旧的暂停标记」，极难反查。
+     * 届时正确做法是给暂停原因带上来源标记、按同一来源判定是否还成立，
+     * 而不是继续用"全局离线"这一个布尔量代指所有暂停。
      */
     @JvmStatic
     fun shouldClearStaleBlock(reason: String, offline: Boolean): Boolean =

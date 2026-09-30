@@ -555,8 +555,10 @@ class LogIndexBuilder(startOffset: Long = 0L) {
 
 ```kotlin
 TaskHealthPolicy.evaluate(snapshot, now, stallTimeoutMs): TaskHealthState
+TaskHealthPolicy.aliveBaseOf(snapshot): Long     // 「还活着」的基准时刻；evaluate 与 describe 共用
 TaskHealthPolicy.labelOf(state): String          // 界面/日志共用的中文短标签
 TaskHealthPolicy.describe(snapshot, state, now): String   // 一行说明
+TaskHealthPolicy.shouldClearStaleBlock(reason, offline): Boolean
 ```
 
 | 常量 | 值 | 用途 |
@@ -565,7 +567,8 @@ TaskHealthPolicy.describe(snapshot, state, now): String   // 一行说明
 | `MIN/MAX_STALL_TIMEOUT_MINUTES` | 1 / 120 | 夹取边界，`normalizeTimeoutMinutes` |
 
 判定优先级：**被暂停 > 卡住 > 记录的状态**。被暂停时不能报卡住 —— 前者等自愈、后者要人工验证。
-「卡住」只看**无进展**（`max(lastProgressAt, lastStartAt)` 距今超阈值），不看有没有失败。
+「卡住」只看**无进展**（基准是 `aliveBaseOf`，见下方「等待态」小节；**不是**简单的
+`max(lastProgressAt, lastStartAt)` —— 蹲点等待态还要把 `expectedAt` 算进去），不看有没有失败。
 
 ⚠️ **进度信号要用两级逼近"整轮耗时"**：`forest.main` 一轮可能跑 30+ 分钟
 （查道具 / 能量雨 / 收能量 / 浇水 / 赠道具等相位；**蹲点是独立后台协程，主任务不等它**），
@@ -578,31 +581,55 @@ TaskHealthPolicy.describe(snapshot, state, now): String   // 一行说明
 只留"整轮结束"一个点会让面板在 5 分钟后误报「卡住」（2026-10-01 实测）。
 注意这只保证"相位之间"有信号：**若某个单相位自身超过阈值，仍会短暂显示卡住**（已知边界）。
 
-⚠️ **等待态（蹲点）不看"多久没进展"，看"预计时刻"**：等待期间本来就没有任何上报
-（协程在 `delay` 到能量成熟时刻），按无进展判会让"等得越久越像卡住"（实测误报 23 分钟）。
-所以快照带 `expectedAt`（预计动作时刻，由 `EnergyWaitingManager` 上报**最早到期**的那个任务）：
+⚠️ **等待态（蹲点）的基准要包含"预计时刻"，但它只参与取最新、不是独占规则**：
+等待期间本来就没有任何上报（协程在 `delay` 到能量成熟时刻），只看"多久没进展"会让"等得越久越像卡住"
+（实测误报 23 分钟）。所以快照带 `expectedAt`（预计动作时刻，由 `EnergyWaitingManager` 逐项容错取**最早到期**那个），
+判定的基准统一是 [`TaskHealthPolicy.aliveBaseOf`]：
 
-- `now < expectedAt` → 等待中（正常）；
-- `expectedAt ≤ now ≤ expectedAt + 阈值` → 等待中（宽限内，正在收）；
-- `now > expectedAt + 阈值` → **卡住**（该收没收，真异常）；
-- `expectedAt == 0`（历史记录/其它来源）→ 退回"按无进展判定"。
+```kotlin
+maxOf(lastProgressAt, lastStartAt, expectedAt)   // 取最新的那个作为"还活着"的证据
+```
 
-面板文案：等待中显示「预计 HH:MM 收取」，卡住且超预计时间时显示「已超预计收取时间 N 分钟」。
+| 情形 | 基准 | 结果 |
+| --- | --- | --- |
+| 预计时刻在**未来** | `expectedAt` | 等待中（正常，不会因久无进展误报卡住） |
+| 已过、且在阈值宽限内 | `expectedAt` | 等待中（正在收） |
+| 已过且超过阈值、**期间没有任何上报** | `expectedAt` | **卡住**（该收没收，真异常） |
+| 已过但**期间有上报**（失败重试、已终止） | 那条上报 | 按"多久没进展"判（**不**判卡住） |
+| `expectedAt == 0`（历史记录/其它来源） | 最近上报 | 无条件退回"按无进展判定" |
+
+⚠️ 最后两行是踩过坑才有的写法：第一版写成"等待态只要有 `expectedAt` 就只看它"，
+于是预计时刻一过期，**之后所有上报全被吞掉** —— 蹲点收取失败后每 5 秒一次的重试都不顶用，
+任务明明在跑却稳定显示「卡住」，比改之前更糟。
+
+面板文案：等待中显示「预计 HH:MM 收取」；卡住时若基准恰好落在 `expectedAt` 上，
+显示「已超预计收取时间 N 分钟」，否则显示「已 N 分钟无进展」（`describe` 与 `evaluate` 同基准）。
 
 ⚠️ **暂停原因有自愈**：`blockedReason` 是全局值、会写进每一项并落盘，**只靠"解除时清一次"会留残影**
 （进程在暂停期间被杀、或接续路径变化都会留下）——判定为「已暂停」而任务其实在跑（2026-10-01 实测）。
-现在 `ordered()` **始终**以全局值覆盖每一项（为空就写空），并加了不变量 **在线 ⇒ 没有任何暂停原因**
+现在一共改了三处：`ordered()` **始终**以全局值覆盖每一项（为空就写空，守的是单一真相源）、
+`syncDailyState` 接续时把每项自带的 `blockedReason` 置空、以及不变量 **在线 ⇒ 没有任何暂停原因**
 （`TaskHealthPolicy.shouldClearStaleBlock`，进度事件与写盘时都会就地纠正）。
+其中后两处才是根因，`ordered()` 那处如今是**防御性**的（`tasks` 里已不可能存着非空值）。
+
+⚠️ 两条使用约束：
+
+1. **自愈只在宿主进程生效**。`readAll()` 跑在模块 App 进程，拿不到 `ApplicationHook.offline`，
+   宿主若在"离线已落盘、解除未执行"之间被杀且当天再无事件，界面仍会读到盘上的「离线中」。
+   这是刻意取舍：界面以盘上最后已知状态为准，不去猜宿主此刻是否在线。
+2. **`onBlocked` 必须在 `setOffline(true)` 之后调用**。它是暂停原因的唯一写入来源，
+   违反这条不会有编译错误，但原因会在下一个事件被自愈逻辑判成残影清掉，日志会打出告警。
+   若将来新增不经过 `setOffline` 的暂停种类，必须同步改 `shouldClearStaleBlock` 的判据。
 
 ### H2. `TaskHealthMonitor` —— 宿主侧入口
 
 ```kotlin
 onStart(id, detail)      // 进入进行中
 onProgress(id, detail)   // 有进展（收能量时逐好友、主任务还按相位边界调用；落盘节流 3s）
-onWaiting(id, detail, expectedAt)  // 等能量成熟（expectedAt=预计动作时刻，判定以它为基准）
+onWaiting(id, detail, expectedAt)  // 等能量成熟（expectedAt=预计动作时刻，参与"取最新基准"，不独占判定）
 onSuccess(id, detail)    // 成功，清零 consecutiveFailures
 onFailure(id, detail)    // 失败，累加 consecutiveFailures
-onBlocked(reason)        // 全局：被离线/安全验证挡住
+onBlocked(reason)        // 全局：被离线/安全验证挡住（⚠️ 必须在 setOffline(true) 之后调用）
 onBlockedCleared()
 readAll(userId, stallTimeoutMinutes, now): List<TaskHealthSnapshot>  // 界面用
 ```
