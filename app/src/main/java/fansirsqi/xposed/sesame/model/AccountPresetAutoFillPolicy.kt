@@ -22,6 +22,8 @@ internal data class AutoFillHint(
     fun render(nameOf: (String) -> String): String = buildString {
         append("未自动预置好友：")
         for ((tier, uids) in uidsByTier) {
+            // MAIN 不会出现（hintFor 已早退）；这里显式跳过，避免同模块误构造时输出自相矛盾的文案
+            if (tier == PresetTier.MAIN) continue
             append("本机账号 ${uids.joinToString("、", transform = nameOf)} 是${tier.label}档；")
         }
         if (unknownTierUids.isNotEmpty()) {
