@@ -173,8 +173,14 @@ class Status {
             return INSTANCE.failureCountTodayList[key] ?: 0
         }
 
-        /** 记一次失败，返回今日累计次数。 */
+        /**
+         * 记一次失败，返回今日累计次数。
+         *
+         * 加锁与同文件的 [save]/[load]/[unload] 保持一致：读-改-写之间不加锁，
+         * 并发下同 key 可能丢一次自增，甚至在两个线程都算出"恰好达到上限"时重复播报。
+         */
         @JvmStatic
+        @Synchronized
         fun markFailureToday(key: String): Int {
             val count = getFailureCountToday(key) + 1
             INSTANCE.failureCountTodayList[key] = count
