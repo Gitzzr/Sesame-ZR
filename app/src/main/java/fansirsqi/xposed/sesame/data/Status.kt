@@ -28,6 +28,14 @@ class Status {
     var studentTask: Boolean = true
     var vitalityStoreList: MutableMap<String, Int> = HashMap() // 注意命名规范首字母小写
 
+    /**
+     * 今日各权益因「活力值不足」失败过几次（按 skuId 计）。
+     *
+     * 活力值不足是确定性失败，此前每个森林轮次都会再撞一次（2026-09-30 实测 345 次/天），
+     * 达到 [VITALITY_INSUFFICIENT_MAX_ATTEMPTS] 后当天不再尝试；跨天随 [companion].unload() 清零。
+     */
+    var vitalityInsufficientList: MutableMap<String, Int> = HashMap()
+
     // =========================== farm
     var answerQuestion: Boolean = false
     var feedFriendLogList: MutableMap<String, Int> = HashMap()
@@ -118,6 +126,36 @@ class Status {
             val count = getVitalityCount(skuId) + 1
             INSTANCE.vitalityStoreList[skuId] = count
             save()
+        }
+
+        /**
+         * 「活力值不足」当天最多尝试几次兑换。
+         *
+         * 取 2（而不是 1）是刻意的：活力值会在当天继续累积（收能量/做任务都会涨），
+         * 只撞一次就整天放弃，可能错过下午/晚上余额够了以后的正当兑换；
+         * 而 2 次已足以把「每个轮次都撞一遍」的 345 次/天降到个位数。
+         */
+        const val VITALITY_INSUFFICIENT_MAX_ATTEMPTS: Int = 2
+
+        /** 今日该权益因活力值不足失败了几次。 */
+        @JvmStatic
+        fun getVitalityInsufficientCount(skuId: String): Int {
+            return INSTANCE.vitalityInsufficientList[skuId] ?: 0
+        }
+
+        /** 记一次「活力值不足」，返回今日累计次数。 */
+        @JvmStatic
+        fun markVitalityInsufficient(skuId: String): Int {
+            val count = getVitalityInsufficientCount(skuId) + 1
+            INSTANCE.vitalityInsufficientList[skuId] = count
+            save()
+            return count
+        }
+
+        /** 活力值不足到上限后，当天不再尝试兑换该权益。 */
+        @JvmStatic
+        fun hasGivenUpVitalityExchangeToday(skuId: String): Boolean {
+            return getVitalityInsufficientCount(skuId) >= VITALITY_INSUFFICIENT_MAX_ATTEMPTS
         }
 
         @JvmStatic

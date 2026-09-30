@@ -130,6 +130,10 @@ public class Vitality {
             Log.record(TAG, "活力兑换🍃[" + skuId + "]今日已达上限，跳过兑换");
             return false;
         }
+        // 活力值不足是确定性失败：撞够次数后当天不再尝试（此前每个轮次都会再撞，实测 345 次/天）
+        if (Status.hasGivenUpVitalityExchangeToday(skuId)) {
+            return false;
+        }
 
         if (skuInfo.isEmpty()) {
             initVitality("SC_ASSETS");
@@ -185,6 +189,12 @@ public class Vitality {
     }
 
     private static Boolean VitalityExchange(String spuId, String skuId) {
+        // 活力值不足达到当天上限 → 直接跳过，不再发请求。
+        // ⚠️ 守卫必须放在**这一层**：AntForest 有多个入口会直接调 VitalityExchange(spuId, skuId, skuName)
+        // （如 exchangeStealthCard），只在上层 handleVitalityExchange 拦是拦不住的（实测会一直累加到 6 次）。
+        if (Status.hasGivenUpVitalityExchangeToday(skuId)) {
+            return false;
+        }
         try {
             JSONObject jo = new JSONObject(AntForestRpcCall.exchangeBenefit(spuId, skuId));
             if (!jo.optBoolean("success")) {
@@ -193,6 +203,14 @@ public class Vitality {
                     Log.forest("活力兑换🍃[兑换次数已达上限]#" + jo.optString("resultDesc", ""));
                     Status.setFlagToday("forest::VitalityExchangeLimit::" + skuId);
                     return false;
+                }
+                if ("MONEY_NOT_ENOUGH".equals(resultCode)) {
+                    // 活力值不足：确定性失败。达到当天上限后不再尝试，避免"每个轮次都撞一次"
+                    // （2026-09-30 小米17 实测 345 次/天全是这一条）
+                    int attempts = Status.markVitalityInsufficient(skuId);
+                    if (attempts >= Status.VITALITY_INSUFFICIENT_MAX_ATTEMPTS) {
+                        Log.forest("活力兑换🍃[" + skuId + "]活力值不足，今日不再尝试（已失败 " + attempts + " 次）");
+                    }
                 }
             }
             return ResChecker.checkRes(TAG + "森林活力值兑换失败:", jo);
