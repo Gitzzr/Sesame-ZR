@@ -2440,7 +2440,12 @@ class AntMember : ModelTask() {
                     delay(1000)
                 } else {
                     val reason = joinJo.optString("resultView", joinRes)
-                    RepeatFailureGuard.recordFailure(joinKey, "芝麻炼金任务[$title]", reason)
+                    RepeatFailureGuard.recordFailure(
+                        joinKey, "芝麻炼金任务[$title]",
+                        // 与其余接入点对齐：只传 resultView 时，若风控/空响应文案出现在别的字段
+                        // 就判不出豁免；这里追加整段响应
+                        reason, joinRes,
+                    )
                     Log.error(TAG, "任务领取失败: $title - $reason")
                     continue
                 }
